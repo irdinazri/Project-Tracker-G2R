@@ -1,6 +1,9 @@
 // storageShim.js — Supabase-backed shared storage
 import { createClient } from "@supabase/supabase-js";
 
+console.log("DEBUG URL:", JSON.stringify(import.meta.env.VITE_SUPABASE_URL));
+console.log("DEBUG KEY exists:", !!import.meta.env.VITE_SUPABASE_ANON_KEY);
+
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY
