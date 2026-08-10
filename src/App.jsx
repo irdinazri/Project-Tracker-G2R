@@ -73,6 +73,59 @@ const HEALTH_LABEL = { RED: "At risk", AMBER: "Watch", GREEN: "On track" };
 const HEALTH_COLOR = { RED: T.red, AMBER: T.amber, GREEN: T.green };
 const HEALTH_SOFT = { RED: T.redSoft, AMBER: T.amberSoft, GREEN: T.greenSoft };
 
+/* ============================== ROLES ============================== */
+const ROLES = { COORDINATOR: "coordinator", FINANCE: "finance", SUBCON: "subcon" };
+const ROLE_LABELS = {
+  [ROLES.COORDINATOR]: "Program Coordinator",
+  [ROLES.FINANCE]: "Finance",
+  [ROLES.SUBCON]: "Subcon",
+};
+const ROLE_STORAGE_KEY = "g2r-tracker:role";
+
+const PermissionsContext = React.createContext({
+  role: null,
+  canEditProject: false,
+  canEditTasks: false,
+  canEditCosts: false,
+  canEditIssues: false,
+  switchRole: () => {},
+});
+function usePermissions() {
+  return React.useContext(PermissionsContext);
+}
+
+function RoleSelectScreen({ onSelect }) {
+  return (
+    <div className="w-full min-h-screen flex items-center justify-center px-4" style={{ background: T.bg }}>
+      <div
+        className="w-full max-w-sm rounded-xl p-6 flex flex-col gap-3"
+        style={{ background: T.surface, border: `1px solid ${T.border}` }}
+      >
+        <div className="flex flex-col items-center gap-2 mb-2">
+          <img src={LOGO_DATA_URI} alt="Company logo" className="h-10 w-auto object-contain" />
+          <h1 className="text-lg font-semibold text-center" style={{ fontFamily: "'Space Grotesk', sans-serif", color: T.text }}>
+            Who's using the tracker?
+          </h1>
+          <p className="text-sm text-center" style={{ color: T.textDim }}>
+            Pick your role — this changes what you can see and edit.
+          </p>
+        </div>
+        {Object.values(ROLES).map((r) => (
+          <button
+            key={r}
+            onClick={() => onSelect(r)}
+            className="w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+            style={{ border: `1px solid ${T.border}`, color: T.text, background: T.bgElevated }}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = T.accent)}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = T.border)}
+          >
+            {ROLE_LABELS[r]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 // Days an issue can sit OPEN at this severity before it auto-bumps to the next level.
 // e.g. a Low issue open 2+ days becomes Medium; open 7+ days (2+5) becomes High; etc.
 // Escalation only runs while status is "Open" or "In Progress" — Resolved/Closed issues freeze.
@@ -902,6 +955,26 @@ function KpiCard({ label, value, accent, wide }) {
 
 /* ============================== MAIN APP ============================== */
 export default function App() {
+  const [role, setRole] = useState(() => {
+    try {
+      return localStorage.getItem(ROLE_STORAGE_KEY) || null;
+    } catch {
+      return null;
+    }
+  });
+  const chooseRole = (r) => {
+    try { localStorage.setItem(ROLE_STORAGE_KEY, r); } catch {}
+    setRole(r);
+  };
+  const switchRole = () => {
+    try { localStorage.removeItem(ROLE_STORAGE_KEY); } catch {}
+    setRole(null);
+  };
+  const canEditProject = role === ROLES.COORDINATOR;
+  const canEditTasks = role === ROLES.COORDINATOR;
+  const canEditCosts = role === ROLES.COORDINATOR || role === ROLES.FINANCE;
+  const canEditIssues = role === ROLES.COORDINATOR;
+
   const [projects, setProjects] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -1049,8 +1122,14 @@ export default function App() {
     return { withM, totalContract, totalActual, totalProfit, weightedCompletion, totalOpenIssues, active, healthCounts };
   }, [projects]);
 
+  if (!role) {
+    return <RoleSelectScreen onSelect={chooseRole} />;
+  }
+
   return (
-    <>
+    <PermissionsContext.Provider
+      value={{ role, canEditProject, canEditTasks, canEditCosts, canEditIssues, switchRole }}
+    >
     <div
       className="app-shell w-full min-h-screen flex"
       style={{ background: T.bg, color: T.text, fontFamily: "'IBM Plex Sans', sans-serif" }}
@@ -1297,7 +1376,7 @@ export default function App() {
     {printProjectId && (
       <PrintReport project={projects.find((p) => p.id === printProjectId)} />
     )}
-    </>
+    </PermissionsContext.Provider>
   );
 }
 
@@ -1580,6 +1659,7 @@ function PrintReport({ project }) {
 
 /* ============================== SIDEBAR ============================== */
 function SidebarContent({ view, setView, setSelectedId }) {
+  const { role, switchRole } = usePermissions();
   const NavItem = ({ id, icon: Icon, label }) => (
     <button
       onClick={() => {
@@ -1616,8 +1696,21 @@ function SidebarContent({ view, setView, setSelectedId }) {
         <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard" />
         <NavItem id="projects" icon={FolderKanban} label="Projects" />
       </nav>
-      <div className="mt-auto p-4 text-[11px] leading-relaxed" style={{ color: T.textFaint }}>
-        Data here is shared — everyone with this link sees the same projects.
+      <div className="mt-auto p-4 flex flex-col gap-1.5" style={{ borderTop: `1px solid ${T.border}` }}>
+        <span className="text-[11px] leading-relaxed" style={{ color: T.textFaint }}>
+          Data here is shared — everyone with this link sees the same projects.
+        </span>
+        <span className="text-[11px]" style={{ color: T.textFaint }}>
+          Signed in as <strong style={{ color: T.textDim }}>{ROLE_LABELS[role]}</strong>
+        </span>
+        <button
+          type="button"
+          onClick={switchRole}
+          className="text-[11px] font-medium text-left"
+          style={{ color: T.accentText }}
+        >
+          Switch role
+        </button>
       </div>
     </>
   );
@@ -1627,6 +1720,7 @@ function SidebarContent({ view, setView, setSelectedId }) {
 function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }) {
   const { withM, totalContract, totalActual, totalProfit, totalOpenIssues, active, healthCounts } =
     companyMetrics;
+  const { canEditProject } = usePermissions();
 
   const [chartProjectId, setChartProjectId] = useState(null);
   const chartEntry =
@@ -1653,9 +1747,11 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }
             Portfolio-wide view across every project.
           </p>
         </div>
-        <Button onClick={onNewProject}>
-          <Plus size={15} /> New project
-        </Button>
+        {canEditProject && (
+          <Button onClick={onNewProject}>
+            <Plus size={15} /> New project
+          </Button>
+        )}
       </div>
 
       {projects.length === 0 ? (
@@ -1802,6 +1898,7 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }
 
 /* ============================== PROJECTS VIEW ============================== */
 function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, onDeleteProject }) {
+  const { canEditProject } = usePermissions();
   return (
     <div className="flex flex-col gap-5 max-w-6xl">
       <div className="flex items-center justify-between">
@@ -1813,9 +1910,11 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
             {projects.length} project{projects.length !== 1 ? "s" : ""} across all departments.
           </p>
         </div>
-        <Button onClick={onNewProject}>
-          <Plus size={15} /> New project
-        </Button>
+        {canEditProject && (
+          <Button onClick={onNewProject}>
+            <Plus size={15} /> New project
+          </Button>
+        )}
       </div>
 
       {projects.length === 0 ? (
@@ -1881,20 +1980,22 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
                   <span className="text-xs" style={{ color: T.textFaint }}>
                     {p.status}
                   </span>
-                  <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                    <IconBtn title="Edit project" onClick={() => onEditProject(p)}>
-                      <Pencil size={14} />
-                    </IconBtn>
-                    <IconBtn
-                      title="Delete project"
-                      danger
-                      onClick={() => {
-                        if (confirm(`Delete "${p.name}"? This can't be undone.`)) onDeleteProject(p.id);
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </IconBtn>
-                  </div>
+                  {canEditProject && (
+                    <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                      <IconBtn title="Edit project" onClick={() => onEditProject(p)}>
+                        <Pencil size={14} />
+                      </IconBtn>
+                      <IconBtn
+                        title="Delete project"
+                        danger
+                        onClick={() => {
+                          if (confirm(`Delete "${p.name}"? This can't be undone.`)) onDeleteProject(p.id);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </IconBtn>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1927,6 +2028,7 @@ function ProjectDetailView({
   onDeleteIssue,
   onPrintReport,
 }) {
+  const { canEditProject } = usePermissions();
   const m = calcProjectMetrics(project);
   const tabs = [
     ["overview", "Overview"],
@@ -1961,9 +2063,11 @@ function ProjectDetailView({
             <Button variant="ghost" onClick={onPrintReport}>
               <Printer size={14} /> Print report
             </Button>
-            <Button variant="ghost" onClick={onEditProject}>
-              <Pencil size={14} /> Edit
-            </Button>
+            {canEditProject && (
+              <Button variant="ghost" onClick={onEditProject}>
+                <Pencil size={14} /> Edit
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -2053,6 +2157,7 @@ function OverviewTab({ project, m }) {
 }
 
 function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateTask, onManageTemplates, onBulkGenerate, hasDeptTemplates }) {
+  const { canEditTasks } = usePermissions();
   const tasks = project.tasks || [];
   const issues = project.issues || [];
   const siteNames = project.siteNames || [];
@@ -2113,6 +2218,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             type="date"
             value={t.start}
             onChange={(e) => onQuickUpdateTask(t.id, { start: e.target.value })}
+            disabled={!canEditTasks}
             style={{ ...compactInput, minWidth: 132 }}
           />
         </td>
@@ -2121,6 +2227,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             type="date"
             value={t.end}
             onChange={(e) => onQuickUpdateTask(t.id, { end: e.target.value })}
+            disabled={!canEditTasks}
             style={{ ...compactInput, minWidth: 132 }}
           />
         </td>
@@ -2129,6 +2236,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             <Select
               value={t.status}
               onChange={(e) => onQuickUpdateTask(t.id, statusChangePatch(t, e.target.value))}
+              disabled={!canEditTasks}
               style={{ ...compactInput, minWidth: 118 }}
             >
               {TASK_STATUSES.map((s) => (
@@ -2156,38 +2264,41 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             min="0"
             max="100"
             value={progressLocked ? (t.status === "Completed" ? 100 : 0) : (t.progress || 0)}
-            disabled={progressLocked}
+            disabled={progressLocked || !canEditTasks}
             onChange={(e) => onQuickUpdateTask(t.id, { progress: clamp(Number(e.target.value) || 0, 0, 100) })}
             style={{ ...compactInput, width: 72, ...(progressLocked ? { background: T.bg, color: T.textFaint } : {}) }}
           />
         </td>
         <td className="px-4 py-3.5">
-          <div className="flex gap-1.5 justify-end">
-            <IconBtn title="Full edit (name, owner, site)" onClick={() => onEditTask(t)}>
-              <Pencil size={17} />
-            </IconBtn>
-            <IconBtn title="Delete task" danger onClick={() => onDeleteTask(t.id)}>
-              <Trash2 size={17} />
-            </IconBtn>
-          </div>
+          {canEditTasks && (
+            <div className="flex gap-1.5 justify-end">
+              <IconBtn title="Full edit (name, owner, site)" onClick={() => onEditTask(t)}>
+                <Pencil size={17} />
+              </IconBtn>
+              <IconBtn title="Delete task" danger onClick={() => onDeleteTask(t.id)}>
+                <Trash2 size={17} />
+              </IconBtn>
+            </div>
+          )}
         </td>
       </tr>
     );
   };
-
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onManageTemplates}>
-          <ListChecks size={15} /> Task templates{project.department ? ` (${project.department})` : ""}
-        </Button>
-        <Button variant="ghost" onClick={onBulkGenerate}>
-          <Wand2 size={15} /> Generate for sites
-        </Button>
-        <Button onClick={() => onAddTask()}>
-          <Plus size={15} /> Add task
-        </Button>
-      </div>
+      {canEditTasks && (
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onManageTemplates}>
+            <ListChecks size={15} /> Task templates{project.department ? ` (${project.department})` : ""}
+          </Button>
+          <Button variant="ghost" onClick={onBulkGenerate}>
+            <Wand2 size={15} /> Generate for sites
+          </Button>
+          <Button onClick={() => onAddTask()}>
+            <Plus size={15} /> Add task
+          </Button>
+        </div>
+      )}
       {tasks.length === 0 ? (
         (() => {
           const siteCount = (project.siteNames || []).length;
@@ -2301,6 +2412,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
 }
 
 function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
+  const { canEditCosts } = usePermissions();
   const costs = project.costs || [];
 
   return (
@@ -2309,9 +2421,11 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
         <p className="text-sm" style={{ color: T.textDim }}>
           Only <span style={{ color: T.text }}>Approved</span> entries count toward actual cost ({fmtRM(m.actualCost)}).
         </p>
-        <Button onClick={() => onAddCost()}>
-          <Plus size={15} /> Add cost entry
-        </Button>
+        {canEditCosts && (
+          <Button onClick={() => onAddCost()}>
+            <Plus size={15} /> Add cost entry
+          </Button>
+        )}
       </div>
       {costs.length === 0 ? (
         <EmptyState icon={FolderKanban} title="No cost entries yet" body="Log budgeted and actual costs per line item." action={<Button onClick={() => onAddCost()}><Plus size={15} /> Add cost entry</Button>} />
@@ -2356,14 +2470,16 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                       </Pill>
                     </td>
                     <td className="px-4 py-2.5">
-                      <div className="flex gap-1 justify-end">
-                        <IconBtn title="Edit" onClick={() => onEditCost(c)}>
-                          <Pencil size={14} />
-                        </IconBtn>
-                        <IconBtn title="Delete" danger onClick={() => onDeleteCost(c.id)}>
-                          <Trash2 size={14} />
-                        </IconBtn>
-                      </div>
+                      {canEditCosts && (
+                        <div className="flex gap-1 justify-end">
+                          <IconBtn title="Edit" onClick={() => onEditCost(c)}>
+                            <Pencil size={14} />
+                          </IconBtn>
+                          <IconBtn title="Delete" danger onClick={() => onDeleteCost(c.id)}>
+                            <Trash2 size={14} />
+                          </IconBtn>
+                        </div>
+                      )}
                     </td>
                   </tr>
                   );
@@ -2378,6 +2494,7 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
 }
 
 function IssuesTab({ project, onAddIssue, onEditIssue, onDeleteIssue }) {
+  const { canEditIssues } = usePermissions();
   const issues = project.issues || [];
   const siteNames = project.siteNames || [];
   const [siteFilter, setSiteFilter] = useState("");
@@ -2411,9 +2528,11 @@ function IssuesTab({ project, onAddIssue, onEditIssue, onDeleteIssue }) {
               ))}
             </Select>
           )}
-          <Button onClick={() => onAddIssue(siteFilter)}>
-            <Plus size={15} /> Log issue
-          </Button>
+          {canEditIssues && (
+            <Button onClick={() => onAddIssue(siteFilter)}>
+              <Plus size={15} /> Log issue
+            </Button>
+          )}
         </div>
       </div>
       {issues.length === 0 ? (
