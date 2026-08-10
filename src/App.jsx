@@ -126,9 +126,7 @@ function RoleSelectScreen({ onSelect }) {
     </div>
   );
 }
-// Days an issue can sit OPEN at this severity before it auto-bumps to the next level.
-// e.g. a Low issue open 2+ days becomes Medium; open 7+ days (2+5) becomes High; etc.
-// Escalation only runs while status is "Open" or "In Progress" — Resolved/Closed issues freeze.
+
 const SEVERITY_ESCALATION_DAYS = { Low: 2, Medium: 5, High: 10 };
 
 /* ============================== HELPERS ============================== */
@@ -148,8 +146,7 @@ const rollToWorkingDay = (dateStr, worksWeekends) => {
   while (isWeekendDay(d)) d = addDaysStr(d, 1);
   return d;
 };
-// N working days after startStr (n=0 returns startStr itself), skipping weekends
-// entirely when the project doesn't work them.
+
 const addWorkingDaysStr = (startStr, n, worksWeekends) => {
   if (worksWeekends) return addDaysStr(startStr, n);
   let d = startStr;
@@ -161,8 +158,6 @@ const addWorkingDaysStr = (startStr, n, worksWeekends) => {
   return d;
 };
 
-// Status drives progress + the "originally due" snapshot used to colour the Gantt bar —
-// shared by TaskModal and the Gantt tab's inline status edit so the two can't diverge.
 function statusChangePatch(task, newStatus) {
   const patch = { status: newStatus };
   if (newStatus === "Completed") patch.progress = 100;
@@ -173,12 +168,6 @@ function statusChangePatch(task, newStatus) {
   return patch;
 }
 
-// If a task's Finish now runs past the project's own target finish date, and it isn't
-// already Completed or Delayed, auto-flag it Delayed — plannedEnd snapshots the
-// project's target finish (so the Gantt bar's red segment runs from the target date
-// to the task's real finish). Never overwrites an existing plannedEnd, and never
-// auto-reverts later if dates come back in line — same one-directional rule already
-// used for issue-triggered delays.
 function applyTargetOverrunPatch(task, projectEndDate) {
   if (!projectEndDate || !task.end) return {};
   if (task.status === "Completed" || task.status === "Delayed") return {};
@@ -188,20 +177,12 @@ function applyTargetOverrunPatch(task, projectEndDate) {
   return {};
 }
 
-// How many days past its Finish date a task is, right now — computed fresh every
-// render, never stored. Works regardless of status (Delayed or not), as long as the
-// task isn't Completed and its Finish has actually passed.
 function daysOverdueCount(task, todayVal) {
   if (!task.end || task.end >= todayVal || task.status === "Completed") return 0;
   return Math.max(1, Math.round(daysBetween(task.end, todayVal)));
 }
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
-// Seeded from the actual EOD scope-of-works screenshot — category structure and task
-// names only. No durations were visible in that image, so every duration defaults to
-// 1 day as an explicit placeholder; these need real numbers before they're trustworthy.
-// No other department has a verified source, so none of them get a seed — an empty
-// starting point is more honest than a guessed one.
 const DEFAULT_DEPT_TEMPLATES = {
   EOD: [
     { id: uid(), name: "Pre-Project", templates: [
@@ -238,14 +219,11 @@ function daysOpen(issue) {
   return Math.max(0, Math.floor(daysBetween(issue.dateReported, end)));
 }
 
-// Number of days it took to resolve an issue, once it has a resolved date recorded.
-// Returns null while the issue is still open / has no resolution date yet.
 function daysToResolve(issue) {
   if (!issue.dateReported || !issue.dateResolved) return null;
   return Math.max(0, Math.round(daysBetween(issue.dateReported, issue.dateResolved)));
 }
 
-// Returns the current severity after applying automatic time-based escalation.
 function getEffectiveSeverity(issue) {
   const base = issue.severity || "Low";
   if (issue.status === "Resolved" || issue.status === "Closed") return base;
@@ -522,9 +500,6 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
     return { rangeStart, rangeEnd, totalDays: Math.max(1, Math.round(daysBetween(rangeStart, rangeEnd))) };
   }, [tasks, projectStart, projectEnd]);
 
-  // The columns actually rendered — every calendar day if the project works weekends,
-  // otherwise weekends are skipped entirely rather than shown greyed out. Task positions
-  // below are indices into THIS array, not raw calendar-day offsets.
   const visibleDays = useMemo(() => {
     const totalCalendarDays = Math.max(1, Math.round(daysBetween(range.rangeStart, range.rangeEnd))) + 1;
     const days = [];
@@ -543,9 +518,6 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
     return map;
   }, [visibleDays]);
 
-  // A date that isn't itself a visible column (e.g. a manually-entered Saturday on a
-  // weekday-only project) snaps forward to the next visible day, or clamps to the last
-  // column if it runs past the end of the range.
   const colForDate = useCallback(
     (dateStr) => {
       if (dayIndexOf.has(dateStr)) return dayIndexOf.get(dateStr);
@@ -591,7 +563,6 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
 
   useEffect(() => {
     if (pxPerDay === null) setPxPerDay(fitPxPerDay());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayCount]);
 
   const effectivePxPerDay = pxPerDay || 8;
@@ -614,7 +585,6 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
     return bands;
   }, [visibleDays]);
 
-  // At small zoom levels there isn't room to print every day number — skip some.
   const dayLabelStep = Math.max(1, Math.ceil(20 / effectivePxPerDay));
 
   const openIssuesByTask = useMemo(() => {
@@ -629,11 +599,6 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
   const LANE_H = compact ? 22 : 30;
   const LANE_GAP = 3;
 
-  // One row per distinct task NAME — every site's instance of "Site Assessment" lands
-  // in the same row, at its own dates. When two instances overlap in time, they can't
-  // share a horizontal line, so each group is greedily packed into the minimum number
-  // of lanes needed (classic interval-partitioning: sort by start, reuse the first lane
-  // whose last box already ended, else open a new lane).
   const groupsWithLanes = useMemo(() => {
     const order = [];
     const bucket = new Map();
@@ -652,9 +617,6 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
         const e = t.end || s;
         const startCol = colForDate(s);
         const realEndCol = Math.max(startCol, colForDate(e));
-        // Still running past its real Finish date and not Completed — stretch the
-        // box to today so lateness visibly keeps growing instead of freezing at
-        // whatever date was last typed in. The stored t.end is untouched.
         const isPastFinishIncomplete = t.end && t.end < todayStrVal && t.status !== "Completed";
         const endCol = isPastFinishIncomplete ? Math.max(realEndCol, todayCol) : realEndCol;
         return { task: t, startCol, endCol };
@@ -798,10 +760,6 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                       const leftPx = startCol * effectivePxPerDay;
                       const widthPx = (endCol - startCol + 1) * effectivePxPerDay;
                       const color = statusColor[t.status] || T.textFaint;
-
-                      // Delayed tasks: days before the ORIGINAL due date (plannedEnd — captured
-                      // the first time the task was marked Delayed) keep the normal status
-                      // colour. From that due date through the revised Finish date, red.
                       const plannedEndDate = t.plannedEnd || null;
                       const plannedCol = plannedEndDate ? colForDate(plannedEndDate) : null;
                       const hasOverrun =
@@ -973,9 +931,13 @@ export default function App() {
   const canEditProject = role === ROLES.COORDINATOR;
   const canEditTasks = role === ROLES.COORDINATOR;
   const canEditCosts = role === ROLES.COORDINATOR || role === ROLES.FINANCE;
+  const canSetCostApproval = role === ROLES.FINANCE;
   const canEditIssues = role === ROLES.COORDINATOR;
+  const canPrintReport = role === ROLES.COORDINATOR || role === ROLES.FINANCE;
+  const canSeeFinancials = role !== ROLES.SUBCON;
 
   const [projects, setProjects] = useState([]);
+
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
@@ -983,21 +945,10 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [detailTab, setDetailTab] = useState("overview");
   const [navOpen, setNavOpen] = useState(false);
-
-  // Task templates, keyed by department — shared across every project in that
-  // department, not tied to any one project. "EOD" defines its scope-of-works once;
-  // every EOD project reuses the same library from "Generate for sites".
   const [deptTemplates, setDeptTemplates] = useState({});
 
   const [modal, setModal] = useState(null); // {type, data}
   const [printProjectId, setPrintProjectId] = useState(null);
-
-  // "Today" is computed fresh from new Date() everywhere, on every render — but
-  // nothing re-renders just because time passed. Left open across midnight (or
-  // across days, if the tab just sits there), the Today marker and every
-  // overdue/delay check would silently freeze at whatever moment the page last
-  // happened to render. This forces a re-render every minute so date-based logic
-  // stays live without needing any user interaction.
   const [, forceTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => forceTick((n) => n + 1), 60000);
@@ -1089,7 +1040,6 @@ export default function App() {
     [projects, persist]
   );
 
-  // sub-item CRUD (tasks/costs/issues) scoped to selected project
   const mutateList = useCallback(
     (listKey, mutator) => {
       if (!selected) return;
@@ -1128,7 +1078,17 @@ export default function App() {
 
   return (
     <PermissionsContext.Provider
-      value={{ role, canEditProject, canEditTasks, canEditCosts, canEditIssues, switchRole }}
+      value={{
+        role,
+        canEditProject,
+        canEditTasks,
+        canEditCosts,
+        canSetCostApproval,
+        canEditIssues,
+        canPrintReport,
+        canSeeFinancials,
+        switchRole,
+      }}
     >
     <div
       className="app-shell w-full min-h-screen flex"
@@ -1322,9 +1282,6 @@ export default function App() {
           presetSite={modal.presetSite}
           onClose={() => setModal(null)}
           onSave={(data) => {
-            // Atomic: issues + tasks must land in the same persist() call, not two
-            // sequential mutateList calls — both would read the same stale `selected`
-            // and the second write would clobber the first.
             const nextIssues = modal.data
               ? (selected.issues || []).map((i) => (i.id === modal.data.id ? { ...i, ...data } : i))
               : [...(selected.issues || []), { id: uid(), ...data }];
@@ -1335,8 +1292,6 @@ export default function App() {
               nextTasks = nextTasks.map((t) => {
                 if (t.id !== data.taskId) return t;
                 if (t.status === "Completed" || t.status === "Delayed") return t;
-                // Same rule as the manual "mark Delayed" flow: snapshot the
-                // original finish date once, never overwrite it on repeat triggers.
                 return { ...t, status: "Delayed", plannedEnd: t.plannedEnd || t.end || "" };
               });
             }
@@ -1720,7 +1675,7 @@ function SidebarContent({ view, setView, setSelectedId }) {
 function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }) {
   const { withM, totalContract, totalActual, totalProfit, totalOpenIssues, active, healthCounts } =
     companyMetrics;
-  const { canEditProject } = usePermissions();
+  const { canEditProject, canSeeFinancials } = usePermissions();
 
   const [chartProjectId, setChartProjectId] = useState(null);
   const chartEntry =
@@ -1767,11 +1722,13 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }
         />
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <KpiCard label="Contract value" value={fmtRM(totalContract)} wide />
-            <KpiCard label="Actual cost" value={fmtRM(totalActual)} wide />
-            <KpiCard label="Profit" value={fmtRM(totalProfit)} accent={T.accent} wide />
-          </div>
+          {canSeeFinancials && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <KpiCard label="Contract value" value={fmtRM(totalContract)} wide />
+              <KpiCard label="Actual cost" value={fmtRM(totalActual)} wide />
+              <KpiCard label="Profit" value={fmtRM(totalProfit)} accent={T.accent} wide />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3" style={{ maxWidth: 320 }}>
             <KpiCard label="Open issues" value={totalOpenIssues} accent={totalOpenIssues > 0 ? T.amber : T.text} />
             <KpiCard label="Active projects" value={active} />
@@ -1792,11 +1749,12 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }
             ))}
           </div>
 
-          <div
-            className="rounded-xl p-4"
-            style={{ background: T.surface, border: `1px solid ${T.border}` }}
-          >
-            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          {canSeeFinancials && (
+            <div
+              className="rounded-xl p-4"
+              style={{ background: T.surface, border: `1px solid ${T.border}` }}
+            >
+              <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
               <h2 className="text-sm font-medium" style={{ color: T.textDim }}>
                 Budget vs actual cost
               </h2>
@@ -1830,19 +1788,21 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }
               </ResponsiveContainer>
             </div>
           </div>
+          )}
 
           <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ background: T.bgElevated, color: T.textDim }}>
-                    {["Project", "Department", "Status", "Completion", "Contract", "Actual", "Issues", "Health"].map(
-                      (h) => (
-                        <th key={h} className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wide">
-                          {h}
-                        </th>
-                      )
-                    )}
+                    {(canSeeFinancials
+                      ? ["Project", "Department", "Status", "Completion", "Contract", "Actual", "Issues", "Health"]
+                      : ["Project", "Department", "Status", "Completion", "Issues", "Health"]
+                    ).map((h) => (
+                      <th key={h} className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wide">
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
@@ -1872,12 +1832,16 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }
                       <td className="px-4 py-3" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>
                         {fmtPct(m.completion)}
                       </td>
-                      <td className="px-4 py-3" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>
-                        {fmtRM(m.contractValue)}
-                      </td>
-                      <td className="px-4 py-3" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>
-                        {fmtRM(m.actualCost)}
-                      </td>
+                      {canSeeFinancials && (
+                        <>
+                          <td className="px-4 py-3" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>
+                            {fmtRM(m.contractValue)}
+                          </td>
+                          <td className="px-4 py-3" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>
+                            {fmtRM(m.actualCost)}
+                          </td>
+                        </>
+                      )}
                       <td className="px-4 py-3" style={{ color: T.text }}>
                         {m.openIssuesCount}
                       </td>
@@ -1898,7 +1862,7 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }
 
 /* ============================== PROJECTS VIEW ============================== */
 function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, onDeleteProject }) {
-  const { canEditProject } = usePermissions();
+  const { canEditProject, canSeeFinancials } = usePermissions();
   return (
     <div className="flex flex-col gap-5 max-w-6xl">
       <div className="flex items-center justify-between">
@@ -1964,17 +1928,19 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
                     {fmtPct(m.completion)}
                   </span>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <div style={{ color: T.textFaint }}>Contract</div>
-                    <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(m.contractValue)}</div>
+ 
+                {canSeeFinancials && (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <div style={{ color: T.textFaint }}>Contract</div>
+                      <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(m.contractValue)}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: T.textFaint }}>Actual cost</div>
+                      <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(m.actualCost)}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div style={{ color: T.textFaint }}>Actual cost</div>
-                    <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(m.actualCost)}</div>
-                  </div>
-                </div>
+                )}
 
                 <div className="flex items-center justify-between pt-2" style={{ borderTop: `1px solid ${T.border}` }}>
                   <span className="text-xs" style={{ color: T.textFaint }}>
@@ -2028,14 +1994,17 @@ function ProjectDetailView({
   onDeleteIssue,
   onPrintReport,
 }) {
-  const { canEditProject } = usePermissions();
+  const { canEditProject, canPrintReport, role } = usePermissions();
   const m = calcProjectMetrics(project);
+  const showCostsTab = role !== ROLES.SUBCON;
   const tabs = [
     ["overview", "Overview"],
     ["gantt", "Gantt"],
-    ["costs", "Costs"],
+    ...(showCostsTab ? [["costs", "Costs"]] : []),
     ["issues", `Issues${m.openIssuesCount ? ` (${m.openIssuesCount})` : ""}`],
   ];
+  const tabIds = tabs.map(([id]) => id);
+  const effectiveTab = tabIds.includes(tab) ? tab : "overview";
 
   return (
     <div className="flex flex-col gap-5 max-w-6xl">
@@ -2060,9 +2029,11 @@ function ProjectDetailView({
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
-            <Button variant="ghost" onClick={onPrintReport}>
-              <Printer size={14} /> Print report
-            </Button>
+            {canPrintReport && (
+              <Button variant="ghost" onClick={onPrintReport}>
+                <Printer size={14} /> Print report
+              </Button>
+            )}
             {canEditProject && (
               <Button variant="ghost" onClick={onEditProject}>
                 <Pencil size={14} /> Edit
@@ -2079,8 +2050,8 @@ function ProjectDetailView({
             onClick={() => setTab(id)}
             className="px-3.5 py-2.5 text-sm font-medium -mb-px transition-colors"
             style={{
-              color: tab === id ? T.accentText : T.textDim,
-              borderBottom: tab === id ? `2px solid ${T.accent}` : "2px solid transparent",
+              color: effectiveTab === id ? T.accentText : T.textDim,
+              borderBottom: effectiveTab === id ? `2px solid ${T.accent}` : "2px solid transparent",
             }}
           >
             {label}
@@ -2088,14 +2059,14 @@ function ProjectDetailView({
         ))}
       </div>
 
-      {tab === "overview" && <OverviewTab project={project} m={m} />}
-      {tab === "gantt" && (
+      {effectiveTab === "overview" && <OverviewTab project={project} m={m} />}
+      {effectiveTab === "gantt" && (
         <GanttTab project={project} onAddTask={onAddTask} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onQuickUpdateTask={onQuickUpdateTask} onManageTemplates={onManageTemplates} onBulkGenerate={onBulkGenerate} hasDeptTemplates={hasDeptTemplates} />
       )}
-      {tab === "costs" && (
+      {effectiveTab === "costs" && showCostsTab && (
         <CostsTab project={project} m={m} onAddCost={onAddCost} onEditCost={onEditCost} onDeleteCost={onDeleteCost} />
       )}
-      {tab === "issues" && (
+      {effectiveTab === "issues" && (
         <IssuesTab project={project} onAddIssue={onAddIssue} onEditIssue={onEditIssue} onDeleteIssue={onDeleteIssue} />
       )}
     </div>
@@ -2103,17 +2074,19 @@ function ProjectDetailView({
 }
 
 function OverviewTab({ project, m }) {
+  const { canSeeFinancials } = usePermissions();
   const duration = project.startDate && project.endDate ? Math.round(daysBetween(project.startDate, project.endDate)) : null;
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard label="Contract value" value={fmtRM(m.contractValue)} />
-        <KpiCard label="Actual cost" value={fmtRM(m.actualCost)} />
-        <KpiCard label="Profit" value={fmtRM(m.profit)} accent={m.profit >= 0 ? T.green : T.red} />
-        <KpiCard label="Margin" value={fmtPct(m.margin)} />
-      </div>
-
+      {canSeeFinancials && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <KpiCard label="Contract value" value={fmtRM(m.contractValue)} />
+          <KpiCard label="Actual cost" value={fmtRM(m.actualCost)} />
+          <KpiCard label="Profit" value={fmtRM(m.profit)} accent={m.profit >= 0 ? T.green : T.red} />
+          <KpiCard label="Margin" value={fmtPct(m.margin)} />
+        </div>
+      )}
       <div className="flex flex-col md:flex-row gap-4">
         <div
           className="rounded-xl p-4"
@@ -2171,9 +2144,6 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
     return map;
   }, [issues]);
 
-  // Table groups by site (name shown once as a header, not repeated per row) —
-  // only once the project actually has sites defined. No sites = the plain flat
-  // table, unchanged from before this feature existed.
   const [collapsedSites, setCollapsedSites] = useState(() => new Set());
   const toggleSiteCollapsed = (key) =>
     setCollapsedSites((prev) => {
@@ -3174,6 +3144,7 @@ function CostModal({ data, onClose, onSave }) {
     }
   );
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const { canSetCostApproval } = usePermissions();
   const isApproved = f.approval === "Approved";
 
   const handleSubmit = () => {
@@ -3194,14 +3165,32 @@ function CostModal({ data, onClose, onSave }) {
             ))}
           </Select>
         </Field>
-        <Field label="Approval status">
-          <Select value={f.approval} onChange={set("approval")}>
-            {APPROVAL_STATUSES.map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </Select>
-        </Field>
+        {canSetCostApproval ? (
+          <Field label="Approval status">
+            <Select value={f.approval} onChange={set("approval")}>
+              {APPROVAL_STATUSES.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </Select>
+          </Field>
+        ) : (
+          <Field label="Approval status">
+            <div className="flex items-center" style={{ height: 38 }}>
+              <Pill
+                color={f.approval === "Approved" ? T.green : f.approval === "Rejected" ? T.red : T.amber}
+                soft={f.approval === "Approved" ? T.greenSoft : f.approval === "Rejected" ? T.redSoft : T.amberSoft}
+              >
+                {f.approval}
+              </Pill>
+            </div>
+          </Field>
+        )}
       </div>
+      {!canSetCostApproval && (
+        <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
+          New entries save as Pending — Finance reviews and approves costs separately.
+        </p>
+      )}
       <Field label="Description">
         <TextInput value={f.description} onChange={set("description")} placeholder="What is this cost for?" />
       </Field>
