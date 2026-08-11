@@ -80,6 +80,10 @@ const ROLE_LABELS = {
   [ROLES.SUBCON]: "Subcon",
 };
 const ROLE_STORAGE_KEY = "g2r-tracker:role";
+const SUBCON_NAME_STORAGE_KEY = "g2r-tracker:subcon-name";
+// Loose matching for subcon names: trims whitespace and ignores case, so
+// "ABC Sdn Bhd" and "abc sdn bhd " are treated as the same company.
+const normalizeName = (s) => (s || "").trim().toLowerCase();
 
 const PermissionsContext = React.createContext({
   role: null,
@@ -90,6 +94,7 @@ const PermissionsContext = React.createContext({
   canEditIssues: false,
   canPrintReport: false,
   canSeeFinancials: true,
+  subconName: "",
   switchRole: () => {},
 });
 function usePermissions() {
@@ -124,6 +129,83 @@ function RoleSelectScreen({ onSelect }) {
             {ROLE_LABELS[r]}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function SubconSelectScreen({ knownSubcons, loaded, onSelect, onBack }) {
+  const [customName, setCustomName] = useState("");
+  return (
+    <div className="w-full min-h-screen flex items-center justify-center px-4" style={{ background: T.bg }}>
+      <div
+        className="w-full max-w-sm rounded-xl p-6 flex flex-col gap-3"
+        style={{ background: T.surface, border: `1px solid ${T.border}` }}
+      >
+        <div className="flex flex-col items-center gap-2 mb-1">
+          <img src={LOGO_DATA_URI} alt="Company logo" className="h-10 w-auto object-contain" />
+          <h1 className="text-lg font-semibold text-center" style={{ fontFamily: "'Space Grotesk', sans-serif", color: T.text }}>
+            Which subcontractor are you?
+          </h1>
+          <p className="text-sm text-center" style={{ color: T.textDim }}>
+            You'll only see projects assigned to this company.
+          </p>
+        </div>
+
+        {!loaded ? (
+          <p className="text-xs text-center py-2" style={{ color: T.textFaint }}>
+            Loading project list…
+          </p>
+        ) : knownSubcons.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            {knownSubcons.map((name) => (
+              <button
+                key={name}
+                onClick={() => onSelect(name)}
+                className="w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors"
+                style={{ border: `1px solid ${T.border}`, color: T.text, background: T.bgElevated }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = T.accent)}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = T.border)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs" style={{ color: T.textFaint }}>
+            No subcontractors are assigned to any project yet.
+          </p>
+        )}
+
+        <div className="flex items-center gap-2 my-1" style={{ color: T.textFaint }}>
+          <div className="flex-1 h-px" style={{ background: T.border }} />
+          <span className="text-[11px]">or</span>
+          <div className="flex-1 h-px" style={{ background: T.border }} />
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (customName.trim()) onSelect(customName.trim());
+          }}
+          className="flex gap-2"
+        >
+          <TextInput
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            placeholder="Type your company name"
+          />
+          <Button type="submit">Go</Button>
+        </form>
+
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-xs font-medium text-center mt-1"
+          style={{ color: T.textFaint }}
+        >
+          ← Back to role selection
+        </button>
       </div>
     </div>
   );
@@ -965,13 +1047,28 @@ export default function App() {
       return null;
     }
   });
+  const [subconName, setSubconName] = useState(() => {
+    try {
+      return localStorage.getItem(SUBCON_NAME_STORAGE_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
   const chooseRole = (r) => {
     try { localStorage.setItem(ROLE_STORAGE_KEY, r); } catch {}
     setRole(r);
   };
+  const chooseSubcon = (name) => {
+    try { localStorage.setItem(SUBCON_NAME_STORAGE_KEY, name); } catch {}
+    setSubconName(name);
+  };
   const switchRole = () => {
-    try { localStorage.removeItem(ROLE_STORAGE_KEY); } catch {}
+    try {
+      localStorage.removeItem(ROLE_STORAGE_KEY);
+      localStorage.removeItem(SUBCON_NAME_STORAGE_KEY);
+    } catch {}
     setRole(null);
+    setSubconName("");
   };
   const canEditProject = role === ROLES.COORDINATOR;
   const canEditTasks = role === ROLES.COORDINATOR;
@@ -1066,7 +1163,26 @@ export default function App() {
     }
   }, []);
 
-  const selected = projects.find((p) => p.id === selectedId) || null;
+  // Every distinct subcon name that appears on any project — used both for the
+  // "which subcontractor are you" picker and for the Subcontractor field's
+  // autocomplete in ProjectModal, so names stay consistent instead of drifting
+  // via typos (which would silently break the filter below).
+  const knownSubcons = useMemo(() => {
+    const names = projects.map((p) => (p.subcon || "").trim()).filter(Boolean);
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [projects]);
+
+  // What a Subcon viewer is actually allowed to see: only projects whose
+  // Subcontractor field matches the company they picked. Every other role sees
+  // everything. This is a client-side convenience filter, not real access
+  // control — see the note in chat about real per-subcon logins if that's ever needed.
+  const visibleProjects = useMemo(() => {
+    if (role !== ROLES.SUBCON) return projects;
+    const mine = normalizeName(subconName);
+    return projects.filter((p) => normalizeName(p.subcon) === mine);
+  }, [projects, role, subconName]);
+
+  const selected = visibleProjects.find((p) => p.id === selectedId) || null;
 
   const updateProject = useCallback(
     (id, patch) => {
@@ -1113,7 +1229,7 @@ export default function App() {
   };
 
   const companyMetrics = useMemo(() => {
-    const withM = projects.map((p) => ({ p, m: calcProjectMetrics(p) }));
+    const withM = visibleProjects.map((p) => ({ p, m: calcProjectMetrics(p) }));
     const totalContract = withM.reduce((s, x) => s + x.m.contractValue, 0);
     const totalActual = withM.reduce((s, x) => s + x.m.actualCost, 0);
     const totalProfit = totalContract - totalActual;
@@ -1126,10 +1242,20 @@ export default function App() {
     const healthCounts = { RED: 0, AMBER: 0, GREEN: 0 };
     withM.forEach((x) => healthCounts[x.m.health]++);
     return { withM, totalContract, totalActual, totalProfit, weightedCompletion, totalOpenIssues, active, healthCounts };
-  }, [projects]);
+  }, [visibleProjects]);
 
   if (!role) {
     return <RoleSelectScreen onSelect={chooseRole} />;
+  }
+  if (role === ROLES.SUBCON && !subconName) {
+    return (
+      <SubconSelectScreen
+        knownSubcons={knownSubcons}
+        loaded={loaded}
+        onSelect={chooseSubcon}
+        onBack={switchRole}
+      />
+    );
   }
 
   return (
@@ -1143,6 +1269,7 @@ export default function App() {
         canEditIssues,
         canPrintReport,
         canSeeFinancials,
+        subconName,
         switchRole,
       }}
     >
@@ -1228,7 +1355,7 @@ export default function App() {
 
             {view === "dashboard" && (
               <DashboardView
-                projects={projects}
+                projects={visibleProjects}
                 companyMetrics={companyMetrics}
                 onOpenProject={goToProject}
                 onNewProject={() => setModal({ type: "project" })}
@@ -1237,7 +1364,7 @@ export default function App() {
 
             {view === "projects" && (
               <ProjectsView
-                projects={projects}
+                projects={visibleProjects}
                 onOpenProject={goToProject}
                 onNewProject={() => setModal({ type: "project" })}
                 onEditProject={(p) => setModal({ type: "project", data: p })}
@@ -1276,6 +1403,19 @@ export default function App() {
                 onPrintReport={() => setPrintProjectId(selected.id)}
               />
             )}
+
+            {view === "detail" && !selected && (
+              <EmptyState
+                icon={FolderKanban}
+                title="Project not available"
+                body="This project isn't visible to your current role, or no longer exists."
+                action={
+                  <Button onClick={() => setView("projects")}>
+                    <ChevronLeft size={15} /> Back to projects
+                  </Button>
+                }
+              />
+            )}
           </main>
         )}
       </div>
@@ -1283,6 +1423,7 @@ export default function App() {
       {modal?.type === "project" && (
         <ProjectModal
           data={modal.data}
+          knownSubcons={knownSubcons}
           onClose={() => setModal(null)}
           onSave={(data) => {
             if (modal.data) updateProject(modal.data.id, data);
@@ -1675,7 +1816,7 @@ function PrintReport({ project }) {
 
 /* ============================== SIDEBAR ============================== */
 function SidebarContent({ view, setView, setSelectedId }) {
-  const { role, switchRole } = usePermissions();
+  const { role, subconName, switchRole } = usePermissions();
   const NavItem = ({ id, icon: Icon, label }) => (
     <button
       onClick={() => {
@@ -1717,7 +1858,11 @@ function SidebarContent({ view, setView, setSelectedId }) {
           Data here is shared — everyone with this link sees the same projects.
         </span>
         <span className="text-[11px]" style={{ color: T.textFaint }}>
-          Signed in as <strong style={{ color: T.textDim }}>{ROLE_LABELS[role]}</strong>
+          Signed in as{" "}
+          <strong style={{ color: T.textDim }}>
+            {ROLE_LABELS[role]}
+            {role === ROLES.SUBCON && subconName ? ` — ${subconName}` : ""}
+          </strong>
         </span>
         <button
           type="button"
@@ -2701,7 +2846,7 @@ function IssuesTab({ project, onAddIssue, onEditIssue, onDeleteIssue }) {
 }
 
 /* ============================== MODALS / FORMS ============================== */
-function ProjectModal({ data, onClose, onSave }) {
+function ProjectModal({ data, knownSubcons, onClose, onSave }) {
   const [f, setF] = useState(
     data
       ? { ...data, sitesText: (data.siteNames || []).join("\n") }
@@ -2755,7 +2900,17 @@ function ProjectModal({ data, onClose, onSave }) {
           <TextInput value={f.coordinator} onChange={set("coordinator")} placeholder="Person in charge" />
         </Field>
         <Field label="Subcontractor (optional)">
-          <TextInput value={f.subcon} onChange={set("subcon")} placeholder="Leave blank if not applicable" />
+          <TextInput
+            value={f.subcon}
+            onChange={set("subcon")}
+            placeholder="Leave blank if not applicable"
+            list="subcon-name-suggestions"
+          />
+          <datalist id="subcon-name-suggestions">
+            {(knownSubcons || []).map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
         </Field>
         <Field label="Status">
           <Select value={f.status} onChange={set("status")}>
@@ -2798,6 +2953,11 @@ function ProjectModal({ data, onClose, onSave }) {
         Sites listed here populate the Site dropdown on tasks, costs and issues, so names stay
         consistent instead of getting free-typed differently each time. Renaming a site here
         doesn't rename it on records that already used the old name — update those separately.
+      </p>
+      <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
+        The Subcontractor name above is also what determines which projects that subcon can see
+        when they pick their company on the role screen — pick from the suggestions rather than
+        retyping it, so a small spelling difference doesn't accidentally hide this project from them.
       </p>
     </Modal>
   );
