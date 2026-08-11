@@ -3547,11 +3547,14 @@ function IssueModal({ data, tasks, siteNames, presetSite, onClose, onSave }) {
       <Field label="Related task (optional)">
         <Select value={f.taskId || ""} onChange={set("taskId")}>
           <option value="">No related task</option>
-          {(tasks || []).map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name || "Untitled task"}
-            </option>
-          ))}
+          {(tasks || [])
+            .slice()
+            .sort((a, b) => (a.site || "").localeCompare(b.site || ""))
+            .map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.site ? `${t.site} — ${t.name || "Untitled task"}` : t.name || "Untitled task"}
+              </option>
+            ))}
         </Select>
       </Field>
       {linkedTask ? (
