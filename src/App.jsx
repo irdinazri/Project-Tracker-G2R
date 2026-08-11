@@ -92,6 +92,7 @@ const PermissionsContext = React.createContext({
   canEditCosts: false,
   canSetCostApproval: false,
   canEditIssues: false,
+  canAddIssues: false,
   canPrintReport: false,
   canSeeFinancials: true,
   subconName: "",
@@ -1075,6 +1076,7 @@ export default function App() {
   const canEditCosts = role === ROLES.COORDINATOR || role === ROLES.FINANCE;
   const canSetCostApproval = role === ROLES.FINANCE;
   const canEditIssues = role === ROLES.COORDINATOR;
+  const canAddIssues = role === ROLES.COORDINATOR || role === ROLES.SUBCON;
   const canPrintReport = role === ROLES.COORDINATOR || role === ROLES.FINANCE;
   const canSeeFinancials = role !== ROLES.SUBCON;
 
@@ -1267,6 +1269,7 @@ export default function App() {
         canEditCosts,
         canSetCostApproval,
         canEditIssues,
+        canAddIssues,
         canPrintReport,
         canSeeFinancials,
         subconName,
@@ -2701,7 +2704,7 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
 }
 
 function IssuesTab({ project, onAddIssue, onEditIssue, onDeleteIssue }) {
-  const { canEditIssues } = usePermissions();
+  const { canEditIssues, canAddIssues } = usePermissions();
   const issues = project.issues || [];
   const siteNames = project.siteNames || [];
   const [siteFilter, setSiteFilter] = useState("");
@@ -2735,7 +2738,7 @@ function IssuesTab({ project, onAddIssue, onEditIssue, onDeleteIssue }) {
               ))}
             </Select>
           )}
-          {canEditIssues && (
+          {canAddIssues && (
             <Button onClick={() => onAddIssue(siteFilter)}>
               <Plus size={15} /> Log issue
             </Button>
@@ -2748,7 +2751,7 @@ function IssuesTab({ project, onAddIssue, onEditIssue, onDeleteIssue }) {
           title="No issues logged"
           body="Track delays, blockers or risks here."
           action={
-            canEditIssues && (
+            canAddIssues && (
               <Button onClick={() => onAddIssue(siteFilter)}>
                 <Plus size={15} /> Log issue
               </Button>
