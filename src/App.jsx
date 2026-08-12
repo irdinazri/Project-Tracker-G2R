@@ -59,7 +59,7 @@ const FONT_IMPORT =
 const STORAGE_KEY = "g2r-tracker:projects:v1";
 const DEPT_TEMPLATES_KEY = "g2r-tracker:dept-templates:v1";
 
-const DEPARTMENTS = ["PGO", "EOD", "CSDO", "IBS", "Finance",  "Management"];
+const DEPARTMENTS = ["PGO", "EOD", "CSDO", "IBC", "Finance",  "Management"];
 const PROJECT_STATUSES = ["Not Started", "In Progress", "On Hold", "Completed", "Cancelled"];
 const TASK_STATUSES = ["Not Started", "In Progress", "Delayed", "Completed"];
 const COST_CATEGORIES = ["SUBCON", "RAW MATERIAL", "TRANSPORT / LOGISTIC", "OTHER COST"];
