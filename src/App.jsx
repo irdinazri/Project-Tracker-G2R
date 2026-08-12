@@ -449,7 +449,7 @@ function IconBtn({ onClick, title, children, danger }) {
       onClick={onClick}
       title={title}
       aria-label={title}
-      className="p-1.5 rounded-md transition-colors focus:outline-none focus-visible:ring-2"
+      className="p-2.5 sm:p-1.5 rounded-md transition-colors focus:outline-none focus-visible:ring-2"
       style={{
         color: danger ? T.red : T.textDim,
         background: "transparent",
@@ -2642,79 +2642,127 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
           </Button>
         )}
       </div>
-      {costs.length === 0 ? (
-        <EmptyState
-          icon={FolderKanban}
-          title="No cost entries yet"
-          body="Log budgeted and actual costs per line item."
-          action={
-            canEditCosts && (
-              <Button onClick={() => onAddCost()}>
-                <Plus size={15} /> Add cost entry
-              </Button>
-            )
-          }
-        />
-      ) : (
-        <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ background: T.bgElevated, color: T.textDim }}>
-                  {["Category", "Description", "Supplier", "Budgeted", "Actual", "Payment", "Approval", ""].map((h) => (
-                    <th key={h} className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wide">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {costs.map((c) => {
-                  const isApproved = c.approval === "Approved";
-                  return (
-                  <tr key={c.id} style={{ borderTop: `1px solid ${T.border}` }}>
-                    <td className="px-4 py-2.5" style={{ color: T.text }}>{c.category}</td>
-                    <td className="px-4 py-2.5" style={{ color: T.textDim }}>
-                      {c.description || "—"}
-                      {isApproved && c.reason && (
-                        <div className="text-xs mt-1" style={{ color: T.textFaint }}>
-                          <span style={{ fontWeight: 500 }}>Reason: </span>
-                          {c.reason}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5" style={{ color: T.textDim }}>{c.supplier || "—"}</td>
-                    <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(c.budgeted)}</td>
-                    <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRM(c.actual) : "—"}</td>
-                    <td className="px-4 py-2.5" style={{ color: T.textDim }}>{isApproved ? (c.paymentMethod || "—") : "—"}</td>
-                    <td className="px-4 py-2.5">
+        {costs.length === 0 ? (
+          <EmptyState
+            icon={FolderKanban}
+            title="No cost entries yet"
+            body="Log budgeted and actual costs per line item."
+            action={
+              canEditCosts && (
+                <Button onClick={() => onAddCost()}>
+                  <Plus size={15} /> Add cost entry
+                </Button>
+              )
+            }
+          />
+        ) : (
+          <>
+            {/* --- DESKTOP VIEW: The original table --- */}
+            <div className="hidden sm:block rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ background: T.bgElevated, color: T.textDim }}>
+                      {["Category", "Description", "Supplier", "Budgeted", "Actual", "Payment", "Approval", ""].map((h) => (
+                        <th key={h} className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wide">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {costs.map((c) => {
+                      const isApproved = c.approval === "Approved";
+                      return (
+                      <tr key={c.id} style={{ borderTop: `1px solid ${T.border}` }}>
+                        <td className="px-4 py-2.5" style={{ color: T.text }}>{c.category}</td>
+                        <td className="px-4 py-2.5" style={{ color: T.textDim }}>
+                          {c.description || "—"}
+                          {isApproved && c.reason && (
+                            <div className="text-xs mt-1" style={{ color: T.textFaint }}>
+                              <span style={{ fontWeight: 500 }}>Reason: </span>
+                              {c.reason}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5" style={{ color: T.textDim }}>{c.supplier || "—"}</td>
+                        <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(c.budgeted)}</td>
+                        <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRM(c.actual) : "—"}</td>
+                        <td className="px-4 py-2.5" style={{ color: T.textDim }}>{isApproved ? (c.paymentMethod || "—") : "—"}</td>
+                        <td className="px-4 py-2.5">
+                          <Pill
+                            color={c.approval === "Approved" ? T.green : c.approval === "Rejected" ? T.red : T.amber}
+                            soft={c.approval === "Approved" ? T.greenSoft : c.approval === "Rejected" ? T.redSoft : T.amberSoft}
+                          >
+                            {c.approval}
+                          </Pill>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {canEditCosts && (
+                            <div className="flex gap-1 justify-end">
+                              <IconBtn title="Edit" onClick={() => onEditCost(c)}>
+                                <Pencil size={14} />
+                              </IconBtn>
+                              <IconBtn title="Delete" danger onClick={() => onDeleteCost(c.id)}>
+                                <Trash2 size={14} />
+                              </IconBtn>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* --- MOBILE VIEW: The new cards block you provided --- */}
+            <div className="sm:hidden flex flex-col gap-2.5">
+              {costs.map((c) => {
+                const isApproved = c.approval === "Approved";
+                return (
+                  <div key={c.id} className="rounded-xl p-3.5 flex flex-col gap-2" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-medium truncate" style={{ color: T.text }}>{c.category}</div>
+                        {c.description && <div className="text-sm mt-0.5" style={{ color: T.textDim }}>{c.description}</div>}
+                      </div>
                       <Pill
                         color={c.approval === "Approved" ? T.green : c.approval === "Rejected" ? T.red : T.amber}
                         soft={c.approval === "Approved" ? T.greenSoft : c.approval === "Rejected" ? T.redSoft : T.amberSoft}
                       >
                         {c.approval}
                       </Pill>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {canEditCosts && (
-                        <div className="flex gap-1 justify-end">
-                          <IconBtn title="Edit" onClick={() => onEditCost(c)}>
-                            <Pencil size={14} />
-                          </IconBtn>
-                          <IconBtn title="Delete" danger onClick={() => onDeleteCost(c.id)}>
-                            <Trash2 size={14} />
-                          </IconBtn>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                    </div>
+                    {c.supplier && <div className="text-xs" style={{ color: T.textFaint }}>{c.supplier}</div>}
+                    <div className="flex items-center justify-between text-sm pt-2" style={{ borderTop: `1px solid ${T.border}` }}>
+                      <div>
+                        <div className="text-[10px] uppercase" style={{ color: T.textFaint }}>Budgeted</div>
+                        <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(c.budgeted)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] uppercase" style={{ color: T.textFaint }}>Actual</div>
+                        <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRM(c.actual) : "—"}</div>
+                      </div>
+                    </div>
+                    {isApproved && c.reason && (
+                      <div className="text-xs" style={{ color: T.textFaint }}>
+                        <span style={{ fontWeight: 500 }}>Reason: </span>{c.reason}
+                      </div>
+                    )}
+                    {canEditCosts && (
+                      <div className="flex gap-1.5 justify-end pt-1">
+                        <IconBtn title="Edit" onClick={() => onEditCost(c)}><Pencil size={15} /></IconBtn>
+                        <IconBtn title="Delete" danger onClick={() => onDeleteCost(c.id)}><Trash2 size={15} /></IconBtn>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
     </div>
   );
 }
@@ -2775,7 +2823,8 @@ function IssuesTab({ project, onAddIssue, onEditIssue, onDeleteIssue }) {
           }
         />
       ) : (
-        <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
+        <>
+        <div className="hidden sm:block rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -2859,6 +2908,47 @@ function IssuesTab({ project, onAddIssue, onEditIssue, onDeleteIssue }) {
             </table>
           </div>
         </div>
+          <div className="sm:hidden flex flex-col gap-2.5">
+          {visibleIssues.map((i) => {
+            const effSeverity = getEffectiveSeverity(i);
+            const escalated = effSeverity !== i.severity;
+            const isOpen = i.status === "Open" || i.status === "In Progress";
+            const resolveDays = daysToResolve(i);
+            const linkedTask = i.taskId ? (project.tasks || []).find((t) => t.id === i.taskId) : null;
+            const sevColor = { Low: T.textDim, Medium: T.amber, High: T.amber, Critical: T.red };
+            return (
+              <div key={i.id} className="rounded-xl p-3.5 flex flex-col gap-2" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-sm" style={{ color: T.text }}>{i.description}</div>
+                  <span className="shrink-0 text-xs font-medium" style={{ color: sevColor[effSeverity] }}>
+                    {effSeverity}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs" style={{ color: T.textFaint }}>
+                  {linkedTask && <span>Task: {linkedTask.name}</span>}
+                  {i.site && <span>Site: {i.site}</span>}
+                  <span>{i.status}</span>
+                  <span>{fmtDate(i.dateReported)}</span>
+                </div>
+                {i.resolution && (
+                  <div className="text-xs" style={{ color: T.textFaint }}>
+                    <span style={{ color: T.green, fontWeight: 500 }}>Resolved: </span>{i.resolution}
+                  </div>
+                )}
+                <div className="text-xs" style={{ color: T.textFaint }}>
+                  {resolveDays != null ? `Resolved in ${resolveDays}d` : isOpen ? `Open ${daysOpen(i)}d` : "—"}
+                </div>
+                {canEditIssues && (
+                  <div className="flex gap-1.5 justify-end pt-1">
+                    <IconBtn title="Edit" onClick={() => onEditIssue(i)}><Pencil size={15} /></IconBtn>
+                    <IconBtn title="Delete" danger onClick={() => onDeleteIssue(i.id)}><Trash2 size={15} /></IconBtn>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        </>
       )}
     </div>
   );
@@ -3202,7 +3292,7 @@ function TaskTemplatesModal({ department, data, onClose, onSave }) {
             </div>
             <div className="flex flex-col gap-2 pl-2">
               {g.templates.map((t, idx) => (
-                <div key={t.id} className="flex items-end gap-2">
+                <div key={t.id} className="flex flex-wrap items-end gap-2">
                   <div className="flex-1">
                     <Field label={idx === 0 ? "Task name" : undefined}>
                       <TextInput
@@ -3212,7 +3302,7 @@ function TaskTemplatesModal({ department, data, onClose, onSave }) {
                       />
                     </Field>
                   </div>
-                  <div style={{ width: 90 }}>
+                  <div className="w-20 sm:w-24 shrink-0">
                     <Field label={idx === 0 ? "Days" : undefined}>
                       <TextInput
                         type="number"
@@ -3222,7 +3312,7 @@ function TaskTemplatesModal({ department, data, onClose, onSave }) {
                       />
                     </Field>
                   </div>
-                  <div style={{ width: 130 }}>
+                  <div className="w-32 sm:w-40 shrink-0">
                     <Field label={idx === 0 ? "Default owner" : undefined}>
                       <TextInput
                         value={t.owner}
