@@ -3123,7 +3123,7 @@ function TaskModal({ data, issues, siteNames, taskNames, presetSite, onClose, on
       </Field>
       <Field label="Site (optional)">
         <Select value={f.site || ""} onChange={set("site")}>
-          <option value="">No site</option>
+          <option value="">All sites</option>
           {(siteNames || []).map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
