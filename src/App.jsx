@@ -873,9 +873,8 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                         style={{
                           left: i * effectivePxPerDay,
                           width: effectivePxPerDay,
-                          borderRight: `1px solid ${T.border}`,
-                          borderLeft:
-                            i === targetStartCol ? `2px dashed ${T.accentText}` : i === targetEndCol ? `2px dashed ${T.red}` : undefined,
+                          borderRight: i === targetEndCol ? `2px dashed ${T.red}` : `1px solid ${T.border}`,
+                          borderLeft: i === targetStartCol ? `2px dashed ${T.accentText}` : undefined,
                           background: i === todayCol ? T.amberSoft : "transparent",
                         }}
                       />
