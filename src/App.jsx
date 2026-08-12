@@ -283,11 +283,6 @@ function daysOverdueCount(task, todayVal) {
 }
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
-// Seeded from the actual EOD scope-of-works screenshot — category structure and task
-// names only. No durations were visible in that image, so every duration defaults to
-// 1 day as an explicit placeholder; these need real numbers before they're trustworthy.
-// No other department has a verified source, so none of them get a seed — an empty
-// starting point is more honest than a guessed one.
 const DEFAULT_DEPT_TEMPLATES = {
   EOD: [
     { id: uid(), name: "Pre-Project", templates: [
@@ -314,6 +309,28 @@ const DEFAULT_DEPT_TEMPLATES = {
     ]},
     { id: uid(), name: "Site Acceptance", templates: [
       { id: uid(), name: "Site Acceptance", durationDays: 1, owner: "" },
+    ]},
+  ],
+  IBC: [
+    { id: uid(), name: "Site Acquisition", templates: [
+      { id: uid(), name: "Site Acquisition", durationDays: 1, owner: "" },
+    ]},
+    { id: uid(), name: "Site Survey", templates: [
+      { id: uid(), name: "Site Survey Northern", durationDays: 1, owner: "" },
+      { id: uid(), name: "Site Survey Southern", durationDays: 1, owner: "" },
+      { id: uid(), name: "Site Survey Central", durationDays: 1, owner: "" },
+    ]},
+    { id: uid(), name: "Technical Proposal", templates: [
+      { id: uid(), name: "Technical Proposal Submission", durationDays: 1, owner: "" },
+    ]},
+    { id: uid(), name: "Material", templates: [
+      { id: uid(), name: "Material Procurement", durationDays: 1, owner: "" },
+      { id: uid(), name: "Material Arrival", durationDays: 1, owner: "" },
+    ]},
+    { id: uid(), name: "Installation & Acceptance", templates: [
+      { id: uid(), name: "Northern Installation", durationDays: 1, owner: "" },
+      { id: uid(), name: "Southern Installation", durationDays: 1, owner: "" },
+      { id: uid(), name: "Central Installation", durationDays: 1, owner: "" },
     ]},
   ],
 };
