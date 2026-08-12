@@ -918,7 +918,7 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                       const linkedIssues = openIssuesByTask[t.id] || [];
                       const progress = clamp(t.progress || 0, 0, 100);
                       const clickable = !!onEditTask;
-                      const sitePrefix = t.site ? `${t.site} — ` : "";
+                      const sitePrefix = t.site ? `${t.site} — ` : "All sites — ";
 
                       return (
                         <div
