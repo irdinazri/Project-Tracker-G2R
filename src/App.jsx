@@ -3534,42 +3534,54 @@ function IssueModal({ data, tasks, siteNames, presetSite, onClose, onSave }) {
   const linkedTask = f.taskId ? (tasks || []).find((t) => t.id === f.taskId) : null;
   const willAutoDelay =
     linkedTask && (f.status === "Open" || f.status === "In Progress") && linkedTask.status !== "Completed" && linkedTask.status !== "Delayed";
-  // When a task is linked, the issue's site follows the task's site — an issue can't
-  // sensibly claim a different site than the task it's blocking. Only ask directly
-  // when there's no linked task to inherit from.
-  const handleSubmit = () => onSave({ ...f, site: linkedTask ? linkedTask.site || "" : f.site || "" });
+  // Site now drives the flow, not the other way around: pick a site first, and
+  // the Related task list below narrows to that site's tasks. Whatever site is
+  // selected here is what gets saved — there's no separate "inherit from task" step.
+  const handleSubmit = () => onSave({ ...f, site: f.site || "" });
 
   return (
     <Modal title={data ? "Edit issue" : "Log issue"} onClose={onClose} onSubmit={handleSubmit}>
       <Field label="Description">
         <TextArea required value={f.description} onChange={set("description")} placeholder="What happened?" />
       </Field>
+      <Field label="Site (optional)">
+        <Select
+          value={f.site || ""}
+          onChange={(e) => {
+            const newSite = e.target.value;
+            setF((prev) => {
+              // The Related task field below only lists tasks belonging to the
+              // chosen site, so a task selected under a different site would
+              // become invisible in that filtered list — clear it rather than
+              // leave a stale, no-longer-shown value saved underneath.
+              const linked = prev.taskId ? (tasks || []).find((t) => t.id === prev.taskId) : null;
+              const stillValid = linked && (linked.site || "") === newSite;
+              return { ...prev, site: newSite, taskId: stillValid ? prev.taskId : "" };
+            });
+          }}
+        >
+          <option value="">No site</option>
+          {(siteNames || []).map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </Select>
+      </Field>
       <Field label="Related task (optional)">
         <Select value={f.taskId || ""} onChange={set("taskId")}>
           <option value="">No related task</option>
           {(tasks || [])
-            .slice()
-            .sort((a, b) => (a.site || "").localeCompare(b.site || ""))
+            .filter((t) => (t.site || "") === (f.site || ""))
             .map((t) => (
               <option key={t.id} value={t.id}>
-                {t.site ? `${t.site} — ${t.name || "Untitled task"}` : t.name || "Untitled task"}
+                {t.name || "Untitled task"}
               </option>
             ))}
         </Select>
       </Field>
-      {linkedTask ? (
+      {(siteNames || []).length > 0 && (
         <p className="text-xs" style={{ color: T.textFaint }}>
-          Site: {linkedTask.site || "No site"} (inherited from the linked task)
+          Pick a site first — the task list narrows down to that site's tasks.
         </p>
-      ) : (
-        <Field label="Site (optional)">
-          <Select value={f.site || ""} onChange={set("site")}>
-            <option value="">No site</option>
-            {(siteNames || []).map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </Select>
-        </Field>
       )}
       {willAutoDelay && (
         <div
