@@ -2579,7 +2579,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
                 {siteGroups
                   ? siteGroups.map((g) => {
                       const key = g.site || "\u0000none";
-                      const label = g.site || "No site";
+                      const label = g.site || "All sites";
                       const isCollapsed = collapsedSites.has(key);
                       return (
                         <React.Fragment key={key}>
