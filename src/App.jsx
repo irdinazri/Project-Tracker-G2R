@@ -251,20 +251,31 @@ const addWorkingDaysStr = (startStr, n, worksWeekends) => {
 // shared by TaskModal and the Gantt tab's inline status edit so the two can't diverge.
 function statusChangePatch(task, newStatus) {
   const patch = { status: newStatus };
-  if (newStatus === "Completed") patch.progress = 100;
-  else if (newStatus === "Not Started") patch.progress = 0;
+  const today = todayStr();
 
-  if (newStatus === "Delayed" && !task.plannedEnd) patch.plannedEnd = task.end || "";
-  else if (newStatus !== "Delayed") patch.plannedEnd = "";
+  if (newStatus === "Completed") {
+    patch.progress = 100;
+    // Finished past its Finish date: persist the real duration. Without this,
+    // the render-time stretch (which only applies while the task is still
+    // incomplete) disappears the moment it's marked Completed, and a task
+    // that actually ran 3 days snaps back to showing its original 1-day plan.
+    if (task.end && task.end < today) {
+      patch.plannedEnd = task.plannedEnd || task.end; // original due date, kept as history
+      patch.end = today; // actual completion date
+    }
+    // plannedEnd is deliberately NOT cleared here — it's the permanent record
+    // of when the task was originally due, used to render the red overrun tail.
+  } else if (newStatus === "Not Started") {
+    patch.progress = 0;
+    patch.plannedEnd = "";
+  } else if (newStatus === "Delayed") {
+    if (!task.plannedEnd) patch.plannedEnd = task.end || "";
+  } else {
+    // In Progress: manually reverting out of Delayed clears the snapshot.
+    patch.plannedEnd = "";
+  }
   return patch;
 }
-
-// If a task's Finish now runs past the project's own target finish date, and it isn't
-// already Completed or Delayed, auto-flag it Delayed — plannedEnd snapshots the
-// project's target finish (so the Gantt bar's red segment runs from the target date
-// to the task's real finish). Never overwrites an existing plannedEnd, and never
-// auto-reverts later if dates come back in line — same one-directional rule already
-// used for issue-triggered delays.
 function applyTargetOverrunPatch(task, projectEndDate) {
   if (!projectEndDate || !task.end) return {};
   if (task.status === "Completed" || task.status === "Delayed") return {};
@@ -901,13 +912,16 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                       const widthPx = (endCol - startCol + 1) * effectivePxPerDay;
                       const color = statusColor[t.status] || T.textFaint;
 
-                      // Delayed tasks: days before the ORIGINAL due date (plannedEnd — captured
-                      // the first time the task was marked Delayed) keep the normal status
-                      // colour. From that due date through the revised Finish date, red.
+                      // Days before the ORIGINAL due date (plannedEnd) keep the normal status
+                      // colour. From that due date through the real Finish date, red. This now
+                      // applies both while Delayed AND after completion, so a task that took
+                      // 3 days against a 1-day plan keeps its red tail permanently, not just
+                      // until someone marks it done.
                       const plannedEndDate = t.plannedEnd || null;
                       const plannedCol = plannedEndDate ? colForDate(plannedEndDate) : null;
-                      const hasOverrun =
-                        t.status === "Delayed" && plannedCol != null && plannedCol >= startCol && plannedCol < endCol;
+                      const overrunSpan = plannedCol != null && plannedCol >= startCol && plannedCol < endCol;
+                      const finishedLate = t.status === "Completed" && overrunSpan;
+                      const hasOverrun = (t.status === "Delayed" && overrunSpan) || finishedLate;
                       const accentDays = hasOverrun ? plannedCol - startCol : 0;
                       const redDays = hasOverrun ? endCol - plannedCol + 1 : 0;
 
@@ -915,6 +929,10 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                         t.end && t.end < todayStrVal && t.status !== "Completed" && t.status !== "Delayed";
                       const stillRunningOverdue = t.status === "Delayed" && t.end < todayStrVal;
                       const daysOverdue = daysOverdueCount(t, todayStrVal);
+                      const daysLate =
+                        finishedLate && t.plannedEnd && t.end
+                          ? Math.max(1, Math.round(daysBetween(t.plannedEnd, t.end)))
+                          : 0;
                       const linkedIssues = openIssuesByTask[t.id] || [];
                       const progress = clamp(t.progress || 0, 0, 100);
                       const clickable = !!onEditTask;
@@ -931,12 +949,16 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                             top: lane * (LANE_H + LANE_GAP),
                             height: LANE_H,
                             background: hasOverrun ? "transparent" : `${color}33`,
-                            border: `1px solid ${isOverdueUnflagged ? T.amber : hasOverrun ? T.red : color}`,
+                            border: `1px solid ${
+                              isOverdueUnflagged ? T.amber : hasOverrun && !finishedLate ? T.red : color
+                            }`,
                             borderStyle: isOverdueUnflagged || stillRunningOverdue ? "dashed" : "solid",
                             cursor: clickable ? "pointer" : "default",
                           }}
                           title={
-                            hasOverrun
+                            finishedLate
+                              ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} · completed ${daysLate}d after the original ${fmtDate(t.plannedEnd)} finish date`
+                              : hasOverrun
                               ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · overdue since ${fmtDate(t.plannedEnd)}${stillRunningOverdue ? ` · still ${daysOverdue}d past its Finish date` : ""}`
                               : isOverdueUnflagged
                               ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · ${daysOverdue}d past its finish date, not marked Delayed yet`
@@ -949,15 +971,25 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                             <>
                               <div
                                 className="absolute inset-y-0 left-0"
-                                style={{ width: accentDays * effectivePxPerDay, background: `${T.accent}33` }}
+                                style={{
+                                  width: accentDays * effectivePxPerDay,
+                                  background: finishedLate ? T.green : `${T.accent}33`,
+                                }}
                               />
                               <div
                                 className="absolute inset-y-0 right-0"
-                                style={{ width: redDays * effectivePxPerDay, background: `${T.red}33` }}
+                                style={{
+                                  width: redDays * effectivePxPerDay,
+                                  background: finishedLate ? T.red : `${T.red}33`,
+                                }}
                               />
                               <div
                                 className="absolute top-0 bottom-0"
-                                style={{ left: accentDays * effectivePxPerDay, width: 1, background: T.red }}
+                                style={{
+                                  left: accentDays * effectivePxPerDay,
+                                  width: 1,
+                                  background: finishedLate ? "rgba(255,255,255,0.85)" : T.red,
+                                }}
                               />
                             </>
                           )}
@@ -966,10 +998,9 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                               <AlertTriangle size={compact ? 10 : 12} />
                             </span>
                           )}
-                          <div
-                            className="relative"
-                            style={{ width: `${progress}%`, background: color, height: "100%" }}
-                          />
+                          {!finishedLate && (
+                            <div className="relative" style={{ width: `${progress}%`, background: color, height: "100%" }} />
+                          )}
                         </div>
                       );
                     })}
@@ -994,6 +1025,16 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className={compact ? "w-2.5 h-2.5 rounded-sm" : "w-3 h-3 rounded-sm"} style={{ border: `1.5px dashed ${T.red}` }} /> Still running past its revised date
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="inline-flex overflow-hidden rounded-sm"
+            style={{ width: compact ? 10 : 12, height: compact ? 10 : 12 }}
+          >
+            <span style={{ flex: 1, background: T.green }} />
+            <span style={{ flex: 1, background: T.red }} />
+          </span>
+          Completed late (red = past original date)
         </span>
         {showTargetStart && (
           <span className="inline-flex items-center gap-1.5">
@@ -2404,6 +2445,101 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
     return ordered;
   }, [tasks, siteNames]);
 
+  const renderTaskCard = (t, showSite) => {
+    const isOverdueUnflagged = t.end && t.end < today && t.status !== "Completed" && t.status !== "Delayed";
+    const stillRunningOverdue = t.status === "Delayed" && t.end < today;
+    const daysOverdue = daysOverdueCount(t, today);
+    const linkedIssues = openIssuesByTask[t.id] || [];
+    const progressLocked = t.status === "Completed" || t.status === "Not Started";
+    return (
+      <div
+        key={t.id}
+        className="rounded-xl p-3.5 flex flex-col gap-2.5"
+        style={{
+          background: T.surface,
+          border: `1px solid ${T.border}`,
+          borderLeft:
+            linkedIssues.length || stillRunningOverdue
+              ? `3px solid ${T.red}`
+              : isOverdueUnflagged
+              ? `3px solid ${T.amber}`
+              : `1px solid ${T.border}`,
+        }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-medium truncate" style={{ color: T.text }}>{t.name}</div>
+            <div className="text-xs mt-0.5" style={{ color: T.textFaint }}>
+              {showSite ? (t.site || "All sites") : ""}
+              {showSite && t.owner ? " · " : ""}
+              {t.owner || ""}
+            </div>
+          </div>
+          {canEditTasks && (
+            <div className="flex gap-1 shrink-0">
+              <IconBtn title="Full edit (name, owner, site)" onClick={() => onEditTask(t)}>
+                <Pencil size={16} />
+              </IconBtn>
+              <IconBtn title="Delete task" danger onClick={() => onDeleteTask(t.id)}>
+                <Trash2 size={16} />
+              </IconBtn>
+            </div>
+          )}
+        </div>
+
+        {(linkedIssues.length > 0 || isOverdueUnflagged || stillRunningOverdue) && (
+          <div className="flex flex-wrap gap-1.5">
+            {linkedIssues.length > 0 && (
+              <Pill color={T.red} soft={T.redSoft}>
+                {linkedIssues.length > 1 ? `${linkedIssues.length} issues` : "Issue"}
+              </Pill>
+            )}
+            {isOverdueUnflagged && <Pill color={T.amber} soft={T.amberSoft}>Overdue {daysOverdue}d</Pill>}
+            {stillRunningOverdue && <Pill color={T.red} soft={T.redSoft}>Still {daysOverdue}d over</Pill>}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-2.5">
+          <Field label="Start">
+            <TextInput
+              type="date"
+              value={t.start}
+              disabled={!canEditTasks}
+              onChange={(e) => onQuickUpdateTask(t.id, { start: e.target.value })}
+            />
+          </Field>
+          <Field label="Finish">
+            <TextInput
+              type="date"
+              value={t.end}
+              disabled={!canEditTasks}
+              onChange={(e) => onQuickUpdateTask(t.id, { end: e.target.value })}
+            />
+          </Field>
+          <Field label="Status">
+            <Select
+              value={t.status}
+              disabled={!canEditTasks}
+              onChange={(e) => onQuickUpdateTask(t.id, statusChangePatch(t, e.target.value))}
+            >
+              {TASK_STATUSES.map((s) => <option key={s}>{s}</option>)}
+            </Select>
+          </Field>
+          <Field label="Progress (%)">
+            <TextInput
+              type="number"
+              min="0"
+              max="100"
+              value={progressLocked ? (t.status === "Completed" ? 100 : 0) : (t.progress || 0)}
+              disabled={progressLocked || !canEditTasks}
+              onChange={(e) => onQuickUpdateTask(t.id, { progress: clamp(Number(e.target.value) || 0, 0, 100) })}
+              style={progressLocked ? { background: T.bg, color: T.textFaint } : undefined}
+            />
+          </Field>
+        </div>
+      </div>
+    );
+  };
   const renderTaskRow = (t, showSite) => {
     const isOverdueUnflagged = t.end && t.end < today && t.status !== "Completed" && t.status !== "Delayed";
     const stillRunningOverdue = t.status === "Delayed" && t.end < today;
@@ -2564,61 +2700,101 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
       ) : (
         <>
           <GanttChart tasks={tasks} projectStart={project.startDate} projectEnd={project.endDate} onEditTask={canEditTasks ? onEditTask : undefined} issues={issues} worksWeekends={!!project.worksWeekends} />
-          <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
-            <table className="w-full text-base">
-              <thead>
-                <tr style={{ background: T.bgElevated, color: T.textDim }}>
-                  {(siteGroups ? ["Task", "Owner", "Start", "Finish", "Status", "Progress", ""] : ["Task", "Site", "Owner", "Start", "Finish", "Status", "Progress", ""]).map((h) => (
-                    <th key={h} className="text-left font-medium px-4 py-3 text-sm uppercase tracking-wide">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {siteGroups
-                  ? siteGroups.map((g) => {
-                      const key = g.site || "\u0000none";
-                      const label = g.site || "All sites";
-                      const isCollapsed = collapsedSites.has(key);
-                      return (
-                        <React.Fragment key={key}>
-                          <tr style={{ background: T.bg, borderTop: `1px solid ${T.border}` }}>
-                            <td colSpan={7} className="px-4 py-2.5">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleSiteCollapsed(key)}
-                                  className="flex items-center gap-2"
-                                >
-                                  <span style={{ color: T.textFaint, fontSize: 11, width: 10 }}>{isCollapsed ? "▸" : "▾"}</span>
-                                  <span className="font-medium text-sm" style={{ color: T.text, fontFamily: "'Space Grotesk', sans-serif" }}>
-                                    {label}
-                                  </span>
-                                  <span className="text-xs" style={{ color: T.textFaint }}>
-                                    {g.tasks.length} task{g.tasks.length === 1 ? "" : "s"}
-                                  </span>
-                                </button>
-                                {canEditTasks && (
+          {/* Desktop: table (also scrolls horizontally now, so narrow laptop windows can't clip it either) */}
+          <div className="hidden sm:block rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-base">
+                <thead>
+                  <tr style={{ background: T.bgElevated, color: T.textDim }}>
+                    {(siteGroups ? ["Task", "Owner", "Start", "Finish", "Status", "Progress", ""] : ["Task", "Site", "Owner", "Start", "Finish", "Status", "Progress", ""]).map((h) => (
+                      <th key={h} className="text-left font-medium px-4 py-3 text-sm uppercase tracking-wide">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {siteGroups
+                    ? siteGroups.map((g) => {
+                        const key = g.site || "\u0000none";
+                        const label = g.site || "All sites";
+                        const isCollapsed = collapsedSites.has(key);
+                        return (
+                          <React.Fragment key={key}>
+                            <tr style={{ background: T.bg, borderTop: `1px solid ${T.border}` }}>
+                              <td colSpan={7} className="px-4 py-2.5">
+                                <div className="flex items-center gap-2">
                                   <button
                                     type="button"
-                                    onClick={() => onAddTask(g.site)}
-                                    className="ml-auto inline-flex items-center gap-1 text-xs font-medium"
-                                    style={{ color: T.accentText }}
+                                    onClick={() => toggleSiteCollapsed(key)}
+                                    className="flex items-center gap-2"
                                   >
-                                    <Plus size={13} /> Add task
+                                    <span style={{ color: T.textFaint, fontSize: 11, width: 10 }}>{isCollapsed ? "▸" : "▾"}</span>
+                                    <span className="font-medium text-sm" style={{ color: T.text, fontFamily: "'Space Grotesk', sans-serif" }}>
+                                      {label}
+                                    </span>
+                                    <span className="text-xs" style={{ color: T.textFaint }}>
+                                      {g.tasks.length} task{g.tasks.length === 1 ? "" : "s"}
+                                    </span>
                                   </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                          {!isCollapsed && g.tasks.map((t) => renderTaskRow(t, false))}
-                        </React.Fragment>
-                      );
-                    })
-                  : tasks.map((t) => renderTaskRow(t, true))}
-              </tbody>
-            </table>
+                                  {canEditTasks && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onAddTask(g.site)}
+                                      className="ml-auto inline-flex items-center gap-1 text-xs font-medium"
+                                      style={{ color: T.accentText }}
+                                    >
+                                      <Plus size={13} /> Add task
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                            {!isCollapsed && g.tasks.map((t) => renderTaskRow(t, false))}
+                          </React.Fragment>
+                        );
+                      })
+                    : tasks.map((t) => renderTaskRow(t, true))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile: stacked cards instead of a cramped table */}
+          <div className="sm:hidden flex flex-col gap-2.5">
+            {siteGroups
+              ? siteGroups.map((g) => {
+                  const key = g.site || "\u0000none";
+                  const label = g.site || "All sites";
+                  const isCollapsed = collapsedSites.has(key);
+                  return (
+                    <React.Fragment key={key}>
+                      <div className="flex items-center gap-2 px-1 pt-1">
+                        <button type="button" onClick={() => toggleSiteCollapsed(key)} className="flex items-center gap-2">
+                          <span style={{ color: T.textFaint, fontSize: 11, width: 10 }}>{isCollapsed ? "▸" : "▾"}</span>
+                          <span className="font-medium text-sm" style={{ color: T.text, fontFamily: "'Space Grotesk', sans-serif" }}>
+                            {label}
+                          </span>
+                          <span className="text-xs" style={{ color: T.textFaint }}>
+                            {g.tasks.length} task{g.tasks.length === 1 ? "" : "s"}
+                          </span>
+                        </button>
+                        {canEditTasks && (
+                          <button
+                            type="button"
+                            onClick={() => onAddTask(g.site)}
+                            className="ml-auto inline-flex items-center gap-1 text-xs font-medium"
+                            style={{ color: T.accentText }}
+                          >
+                            <Plus size={13} /> Add task
+                          </button>
+                        )}
+                      </div>
+                      {!isCollapsed && g.tasks.map((t) => renderTaskCard(t, false))}
+                    </React.Fragment>
+                  );
+                })
+              : tasks.map((t) => renderTaskCard(t, true))}
           </div>
         </>
       )}
