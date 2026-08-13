@@ -394,7 +394,7 @@ function costLockState(cost, role) {
   const decided = cost.approval && cost.approval !== "Pending";
   return {
     editLocked: decided && role === ROLES.COORDINATOR,
-    deleteLocked: decided && role === ROLES.FINANCE,
+    deleteLocked: decided, // both roles
   };
 }
     
