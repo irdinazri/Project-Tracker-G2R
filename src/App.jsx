@@ -386,6 +386,18 @@ const fmtDate = (d) =>
     ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
     : "—";
 
+// Once Finance records a decision (Approved/Rejected), the entry locks:
+// Coordinator can no longer edit it, Finance can no longer delete it. Both
+// exist to protect the audit trail once a call has been made — while still
+// Pending, either role has full edit/delete access.
+function costLockState(cost, role) {
+  const decided = cost.approval && cost.approval !== "Pending";
+  return {
+    editLocked: decided && role === ROLES.COORDINATOR,
+    deleteLocked: decided && role === ROLES.FINANCE,
+  };
+}
+    
 function calcProjectMetrics(p) {
   const costs = p.costs || [];
   const tasks = p.tasks || [];
@@ -454,18 +466,23 @@ function HealthPill({ health }) {
   );
 }
 
-function IconBtn({ onClick, title, children, danger }) {
+function IconBtn({ onClick, title, children, danger, disabled }) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       title={title}
       aria-label={title}
+      disabled={disabled}
       className="p-2.5 sm:p-1.5 rounded-md transition-colors focus:outline-none focus-visible:ring-2"
       style={{
-        color: danger ? T.red : T.textDim,
+        color: disabled ? T.textFaint : danger ? T.red : T.textDim,
         background: "transparent",
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
       }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = danger ? T.redSoft : T.surfaceHover)}
+      onMouseEnter={(e) => {
+        if (!disabled) e.currentTarget.style.background = danger ? T.redSoft : T.surfaceHover;
+      }}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
     >
       {children}
@@ -473,7 +490,7 @@ function IconBtn({ onClick, title, children, danger }) {
   );
 }
 
-function Button({ children, onClick, variant = "primary", type = "button", className = "" }) {
+function Button({ children, onClick, variant = "primary", type = "button", className = "", disabled = false }) {
   const base =
     "inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2";
   const styles = {
@@ -485,8 +502,9 @@ function Button({ children, onClick, variant = "primary", type = "button", class
     <button
       type={type}
       onClick={onClick}
+      disabled={disabled}
       className={`${base} ${className}`}
-      style={styles[variant]}
+      style={{ ...styles[variant], ...(disabled ? { opacity: 0.5, cursor: "not-allowed" } : {}) }}
     >
       {children}
     </button>
@@ -535,7 +553,7 @@ function TextArea(props) {
   );
 }
 
-function Modal({ title, onClose, onSubmit, submitLabel = "Save", children, wide }) {
+function Modal({ title, onClose, onSubmit, submitLabel = "Save", children, wide, disableSubmit = false }) {
   const ref = useRef(null);
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
@@ -573,7 +591,7 @@ function Modal({ title, onClose, onSubmit, submitLabel = "Save", children, wide 
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            onSubmit();
+            if (!disableSubmit) onSubmit();
           }}
           className="overflow-y-auto px-5 py-4 flex flex-col gap-3.5"
         >
@@ -582,7 +600,7 @@ function Modal({ title, onClose, onSubmit, submitLabel = "Save", children, wide 
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit">{submitLabel}</Button>
+            <Button type="submit" disabled={disableSubmit}>{submitLabel}</Button>
           </div>
         </form>
       </div>
@@ -1804,6 +1822,11 @@ function PrintReport({ project }) {
                         <strong>Reason:</strong> {c.reason}
                       </div>
                     )}
+                    {c.approval === "Rejected" && c.rejectionReason && (
+                      <div style={{ fontSize: 10.5, color: PR.red, marginTop: 2 }}>
+                        <strong>Rejected:</strong> {c.rejectionReason}
+                      </div>
+                    )}
                   </td>
                   <td style={td}>{c.supplier || "—"}</td>
                   <td style={td}>{fmtRM(c.budgeted)}</td>
@@ -2803,15 +2826,24 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
 }
 
 function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
-  const { canEditCosts } = usePermissions();
+  const { canEditCosts, role } = usePermissions();
   const costs = project.costs || [];
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <p className="text-sm" style={{ color: T.textDim }}>
-          Only <span style={{ color: T.text }}>Approved</span> entries count toward actual cost ({fmtRM(m.actualCost)}).
-        </p>
+        <div className="flex flex-col gap-1">
+          <p className="text-sm" style={{ color: T.textDim }}>
+            Only <span style={{ color: T.text }}>Approved</span> entries count toward actual cost ({fmtRM(m.actualCost)}).
+          </p>
+          {canEditCosts && (
+            <p className="text-xs" style={{ color: T.textFaint }}>
+              {role === ROLES.COORDINATOR
+                ? "Once Finance approves or rejects an entry, editing locks — only Pending entries can be changed."
+                : "Once you record a decision, deleting that entry locks — editing stays open if something needs fixing."}
+            </p>
+          )}
+        </div>
         {canEditCosts && (
           <Button onClick={() => onAddCost()}>
             <Plus size={15} /> Add cost entry
@@ -2833,7 +2865,7 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
           />
         ) : (
           <>
-            {/* --- DESKTOP VIEW: The original table --- */}
+            {/* --- DESKTOP VIEW --- */}
             <div className="hidden sm:block rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -2849,6 +2881,7 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                   <tbody>
                     {costs.map((c) => {
                       const isApproved = c.approval === "Approved";
+                      const lock = costLockState(c, role);
                       return (
                       <tr key={c.id} style={{ borderTop: `1px solid ${T.border}` }}>
                         <td className="px-4 py-2.5" style={{ color: T.text }}>{c.category}</td>
@@ -2858,6 +2891,12 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                             <div className="text-xs mt-1" style={{ color: T.textFaint }}>
                               <span style={{ fontWeight: 500 }}>Reason: </span>
                               {c.reason}
+                            </div>
+                          )}
+                          {c.approval === "Rejected" && c.rejectionReason && (
+                            <div className="text-xs mt-1" style={{ color: T.red }}>
+                              <span style={{ fontWeight: 500 }}>Rejected: </span>
+                              {c.rejectionReason}
                             </div>
                           )}
                         </td>
@@ -2876,10 +2915,19 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                         <td className="px-4 py-2.5">
                           {canEditCosts && (
                             <div className="flex gap-1 justify-end">
-                              <IconBtn title="Edit" onClick={() => onEditCost(c)}>
+                              <IconBtn
+                                title={lock.editLocked ? "Locked — Finance already decided this entry" : "Edit"}
+                                disabled={lock.editLocked}
+                                onClick={() => onEditCost(c)}
+                              >
                                 <Pencil size={14} />
                               </IconBtn>
-                              <IconBtn title="Delete" danger onClick={() => onDeleteCost(c.id)}>
+                              <IconBtn
+                                title={lock.deleteLocked ? "Locked — you already recorded a decision on this entry" : "Delete"}
+                                danger
+                                disabled={lock.deleteLocked}
+                                onClick={() => onDeleteCost(c.id)}
+                              >
                                 <Trash2 size={14} />
                               </IconBtn>
                             </div>
@@ -2893,10 +2941,11 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
               </div>
             </div>
 
-            {/* --- MOBILE VIEW: The new cards block you provided --- */}
+            {/* --- MOBILE VIEW --- */}
             <div className="sm:hidden flex flex-col gap-2.5">
               {costs.map((c) => {
                 const isApproved = c.approval === "Approved";
+                const lock = costLockState(c, role);
                 return (
                   <div key={c.id} className="rounded-xl p-3.5 flex flex-col gap-2" style={{ background: T.surface, border: `1px solid ${T.border}` }}>
                     <div className="flex items-start justify-between gap-2">
@@ -2927,10 +2976,28 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                         <span style={{ fontWeight: 500 }}>Reason: </span>{c.reason}
                       </div>
                     )}
+                    {c.approval === "Rejected" && c.rejectionReason && (
+                      <div className="text-xs" style={{ color: T.red }}>
+                        <span style={{ fontWeight: 500 }}>Rejected: </span>{c.rejectionReason}
+                      </div>
+                    )}
                     {canEditCosts && (
                       <div className="flex gap-1.5 justify-end pt-1">
-                        <IconBtn title="Edit" onClick={() => onEditCost(c)}><Pencil size={15} /></IconBtn>
-                        <IconBtn title="Delete" danger onClick={() => onDeleteCost(c.id)}><Trash2 size={15} /></IconBtn>
+                        <IconBtn
+                          title={lock.editLocked ? "Locked — Finance already decided this entry" : "Edit"}
+                          disabled={lock.editLocked}
+                          onClick={() => onEditCost(c)}
+                        >
+                          <Pencil size={15} />
+                        </IconBtn>
+                        <IconBtn
+                          title={lock.deleteLocked ? "Locked — you already recorded a decision on this entry" : "Delete"}
+                          danger
+                          disabled={lock.deleteLocked}
+                          onClick={() => onDeleteCost(c.id)}
+                        >
+                          <Trash2 size={15} />
+                        </IconBtn>
                       </div>
                     )}
                   </div>
@@ -3681,23 +3748,32 @@ function BulkGenerateModal({ department, siteNames, groups, worksWeekends, onClo
 }
 
 function CostModal({ data, onClose, onSave }) {
-  const { canSetCostApproval } = usePermissions();
-  const [f, setF] = useState(
-    data || {
-      category: COST_CATEGORIES[0],
-      description: "",
-      supplier: "",
-      budgeted: "",
-      actual: "",
-      paymentMethod: "",
-      reason: "",
-      approval: "Pending",
-    }
-  );
+  const { canSetCostApproval, role } = usePermissions();
+
+  // Defensive, not just a UI nicety — see the note above about shared storage
+  // with no realtime sync. The Edit button is already hidden for this case in
+  // CostsTab, so in normal use this only fires on a race between two tabs.
+  const locked =
+    role === ROLES.COORDINATOR && data && data.approval && data.approval !== "Pending";
+
+  const [f, setF] = useState({
+    category: COST_CATEGORIES[0],
+    description: "",
+    supplier: "",
+    budgeted: "",
+    actual: "",
+    paymentMethod: "",
+    reason: "",
+    rejectionReason: "",
+    approval: "Pending",
+    ...data,
+  });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const isApproved = f.approval === "Approved";
+  const isRejected = f.approval === "Rejected";
 
   const handleSubmit = () => {
+    if (locked) return;
     onSave({
       ...f,
       budgeted: Number(f.budgeted) || 0,
@@ -3706,10 +3782,25 @@ function CostModal({ data, onClose, onSave }) {
   };
 
   return (
-    <Modal title={data ? "Edit cost entry" : "Add cost entry"} onClose={onClose} onSubmit={handleSubmit}>
+    <Modal
+      title={data ? "Edit cost entry" : "Add cost entry"}
+      onClose={onClose}
+      onSubmit={handleSubmit}
+      disableSubmit={locked}
+    >
+      {locked && (
+        <div
+          className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm"
+          style={{ background: T.amberSoft, color: T.amber }}
+        >
+          <AlertTriangle size={14} />
+          Locked — Finance already {data.approval.toLowerCase()} this entry. Coordinators can't
+          edit a cost line once a decision is recorded.
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3.5">
         <Field label="Category">
-          <Select value={f.category} onChange={set("category")}>
+          <Select value={f.category} onChange={set("category")} disabled={locked}>
             {COST_CATEGORIES.map((c) => (
               <option key={c}>{c}</option>
             ))}
@@ -3736,25 +3827,25 @@ function CostModal({ data, onClose, onSave }) {
           </Field>
         )}
       </div>
-      {!canSetCostApproval && (
+      {!canSetCostApproval && !locked && (
         <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
           New entries save as Pending — Finance reviews and approves costs separately.
         </p>
       )}
       <Field label="Description">
-        <TextInput value={f.description} onChange={set("description")} placeholder="What is this cost for?" />
+        <TextInput value={f.description} onChange={set("description")} placeholder="What is this cost for?" disabled={locked} />
       </Field>
       <Field label="Supplier">
-        <TextInput value={f.supplier} onChange={set("supplier")} placeholder="Vendor / supplier name" />
+        <TextInput value={f.supplier} onChange={set("supplier")} placeholder="Vendor / supplier name" disabled={locked} />
       </Field>
       <Field label="Budgeted (RM)">
-        <TextInput type="number" min="0" step="0.01" value={f.budgeted} onChange={set("budgeted")} />
+        <TextInput type="number" min="0" step="0.01" value={f.budgeted} onChange={set("budgeted")} disabled={locked} />
       </Field>
-      {isApproved ? (
+      {isApproved && (
         <>
           <div className="grid grid-cols-2 gap-3.5">
             <Field label="Payment method">
-              <Select value={f.paymentMethod || ""} onChange={set("paymentMethod")}>
+              <Select value={f.paymentMethod || ""} onChange={set("paymentMethod")} disabled={locked}>
                 <option value="">Select method</option>
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m}>{m}</option>
@@ -3762,7 +3853,7 @@ function CostModal({ data, onClose, onSave }) {
               </Select>
             </Field>
             <Field label="Actual (RM)">
-              <TextInput type="number" min="0" step="0.01" value={f.actual} onChange={set("actual")} />
+              <TextInput type="number" min="0" step="0.01" value={f.actual} onChange={set("actual")} disabled={locked} />
             </Field>
           </div>
           <Field label="Reason">
@@ -3770,12 +3861,26 @@ function CostModal({ data, onClose, onSave }) {
               value={f.reason}
               onChange={set("reason")}
               placeholder="Any context worth recording — e.g. why Terms, partial payment, delay, etc."
+              disabled={locked}
             />
           </Field>
         </>
-      ) : (
+      )}
+      {isRejected && (
+        <Field label="Rejection reason">
+          <TextArea
+            required
+            value={f.rejectionReason}
+            onChange={set("rejectionReason")}
+            placeholder="Why is this cost being rejected? (e.g. missing quotation, exceeds budget, duplicate entry)"
+            disabled={locked}
+          />
+        </Field>
+      )}
+      {f.approval === "Pending" && (
         <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
-          Actual cost, payment method and reason appear once this entry's approval status is Approved.
+          Actual cost, payment method and reason appear once this entry is Approved. A rejection
+          reason is requested once it's Rejected.
         </p>
       )}
     </Modal>
