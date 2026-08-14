@@ -1681,6 +1681,14 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
     Completed: PR.green,
   };
 
+  // Month markers: position-only, same mechanism as day ticks below (which
+  // render correctly) — deliberately NOT using percentage `width` on an
+  // absolutely-positioned box. Two prior attempts at rendering these as
+  // filled/bordered "bands" with a computed width produced visibly broken
+  // output despite the underlying date math checking out under direct
+  // testing, so the width-based approach is dropped rather than debugged a
+  // third time blind. A thin 1px divider (fixed unit, not a percentage) plus
+  // an unsized text label is a strictly simpler, lower-risk rendering path.
   const monthBands = [];
   {
     let cursor = rangeStartStr;
@@ -1689,18 +1697,15 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
       guard++;
       const d = new Date(cursor);
       const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+      monthBands.push({ label, leftPct: (daysBetween(rangeStartStr, cursor) / totalDays) * 100 });
       const firstOfNextMonth = new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString().slice(0, 10);
-      const bandEndExclusive = firstOfNextMonth < addDaysStr(rangeEndStr, 1) ? firstOfNextMonth : addDaysStr(rangeEndStr, 1);
-      const daysInBand = Math.max(1, daysBetween(cursor, bandEndExclusive));
-      monthBands.push({
-        label,
-        leftPct: (daysBetween(rangeStartStr, cursor) / totalDays) * 100,
-        widthPct: (daysInBand / totalDays) * 100,
-      });
-      cursor = bandEndExclusive;
+      cursor = firstOfNextMonth < addDaysStr(rangeEndStr, 1) ? firstOfNextMonth : addDaysStr(rangeEndStr, 1);
     }
   }
 
+  // Day ticks now carry the month too ("28 Jul" rather than just "28"), so
+  // the chart reads correctly on its own even if the month-marker row above
+  // does nothing at all — the actual date reference doesn't depend on it.
   const tickIntervalDays = totalDays <= 14 ? 2 : totalDays <= 35 ? 5 : totalDays <= 90 ? 10 : totalDays <= 180 ? 20 : 30;
   const dayTicks = [];
   {
@@ -1708,10 +1713,15 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
     let guard = 0;
     while (cursor <= rangeEndStr && guard < 40) {
       guard++;
-      dayTicks.push({ dateStr: cursor, pct: pctForDate(cursor) });
+      dayTicks.push({
+        dateStr: cursor,
+        pct: pctForDate(cursor),
+        label: new Date(cursor).toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+      });
       cursor = addDaysStr(cursor, tickIntervalDays);
     }
   }
+
 
   const groups = [];
   {
@@ -1763,24 +1773,34 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
           <div style={{ width: LABEL_W, flexShrink: 0, borderRight: `1px solid ${PR.border}` }} />
           <div style={{ flex: 1, position: "relative", height: 14 }}>
             {monthBands.map((b, i) => (
-              <div
-                key={i}
-                style={{
-                  position: "absolute",
-                  left: `${b.leftPct}%`,
-                  width: `${b.widthPct}%`,
-                  fontSize: 8,
-                  fontWeight: 600,
-                  color: PR.dim,
-                  paddingLeft: 3,
-                  borderLeft: i > 0 ? `1px solid ${PR.border}` : "none",
-                  lineHeight: "14px",
-                  overflow: "hidden",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {b.label}
-              </div>
+              <React.Fragment key={i}>
+                {i > 0 && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: `${b.leftPct}%`,
+                      top: 0,
+                      bottom: 0,
+                      width: 1,
+                      background: PR.border,
+                    }}
+                  />
+                )}
+                <div
+                  style={{
+                    position: "absolute",
+                    left: `${b.leftPct}%`,
+                    marginLeft: i > 0 ? 3 : 0,
+                    fontSize: 8,
+                    fontWeight: 600,
+                    color: PR.dim,
+                    lineHeight: "14px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {b.label}
+                </div>
+              </React.Fragment>
             ))}
           </div>
         </div>
@@ -1793,14 +1813,14 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
                 style={{
                   position: "absolute",
                   left: `${tk.pct}%`,
-                  transform: i === 0 ? "none" : "translateX(-50%)",
+                  transform: i === 0 ? "none" : i === dayTicks.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
                   fontSize: 7.5,
                   color: PR.faint,
                   lineHeight: "14px",
                   whiteSpace: "nowrap",
                 }}
               >
-                {new Date(tk.dateStr).getDate()}
+                {tk.label}
               </div>
             ))}
           </div>
