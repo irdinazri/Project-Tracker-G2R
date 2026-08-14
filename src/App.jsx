@@ -3813,10 +3813,10 @@ function BulkGenerateModal({ department, siteNames, groups, worksWeekends, onClo
 function CostModal({ data, onClose, onSave }) {
   const { canSetCostApproval, role } = usePermissions();
 
-  // Defensive, not just a UI nicety: the Edit button is already hidden for
-  // this case in CostsTab, so in normal use this only fires on a race
-  // between two open tabs (e.g. Finance approves in one tab while a
-  // Coordinator already has the edit modal open on the same entry).
+  // Coordinator: fully locked the instant Finance has decided, no escape —
+  // matches the earlier fix, unchanged. Gated on data.approval (the value
+  // the entry had when the modal opened) since Coordinator has no way to
+  // change approval status anyway.
   const locked =
     role === ROLES.COORDINATOR && data && data.approval && data.approval !== "Pending";
 
@@ -3835,6 +3835,17 @@ function CostModal({ data, onClose, onSave }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const isApproved = f.approval === "Approved";
   const isRejected = f.approval === "Rejected";
+
+  // Finance: every field EXCEPT the Approval dropdown itself locks once a
+  // decision is recorded. Deliberately reads live f.approval, not the
+  // original data.approval — so if Finance flips the dropdown back to
+  // Pending, every other field unlocks immediately in this same modal
+  // session, without needing to close and reopen it. This is the intended
+  // way to fix a wrong decision: reopen it, then edit, then save. Deleting
+  // a decided entry is separately blocked for Finance (see costLockState),
+  // so this dropdown is their only path back in.
+  const financeFieldsLocked = canSetCostApproval && f.approval !== "Pending";
+  const fieldsLocked = locked || financeFieldsLocked;
 
   const handleSubmit = () => {
     if (locked) return;
@@ -3862,9 +3873,19 @@ function CostModal({ data, onClose, onSave }) {
           edit a cost line once a decision is recorded.
         </div>
       )}
+      {financeFieldsLocked && (
+        <div
+          className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm"
+          style={{ background: T.amberSoft, color: T.amber }}
+        >
+          <AlertTriangle size={14} />
+          You already recorded a decision on this entry — fields are locked. To correct
+          something, set Approval status back to Pending below, then edit and save.
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3.5">
         <Field label="Category">
-          <Select value={f.category} onChange={set("category")} disabled={locked}>
+          <Select value={f.category} onChange={set("category")} disabled={fieldsLocked}>
             {COST_CATEGORIES.map((c) => (
               <option key={c}>{c}</option>
             ))}
@@ -3897,19 +3918,19 @@ function CostModal({ data, onClose, onSave }) {
         </p>
       )}
       <Field label="Description">
-        <TextInput value={f.description} onChange={set("description")} placeholder="What is this cost for?" disabled={locked} />
+        <TextInput value={f.description} onChange={set("description")} placeholder="What is this cost for?" disabled={fieldsLocked} />
       </Field>
       <Field label="Supplier">
-        <TextInput value={f.supplier} onChange={set("supplier")} placeholder="Vendor / supplier name" disabled={locked} />
+        <TextInput value={f.supplier} onChange={set("supplier")} placeholder="Vendor / supplier name" disabled={fieldsLocked} />
       </Field>
       <Field label="Budgeted (RM)">
-        <TextInput type="number" min="0" step="0.01" value={f.budgeted} onChange={set("budgeted")} disabled={locked} />
+        <TextInput type="number" min="0" step="0.01" value={f.budgeted} onChange={set("budgeted")} disabled={fieldsLocked} />
       </Field>
       {isApproved && (
         <>
           <div className="grid grid-cols-2 gap-3.5">
             <Field label="Payment method">
-              <Select value={f.paymentMethod || ""} onChange={set("paymentMethod")} disabled={locked}>
+              <Select value={f.paymentMethod || ""} onChange={set("paymentMethod")} disabled={fieldsLocked}>
                 <option value="">Select method</option>
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m}>{m}</option>
@@ -3917,7 +3938,7 @@ function CostModal({ data, onClose, onSave }) {
               </Select>
             </Field>
             <Field label="Actual (RM)">
-              <TextInput type="number" min="0" step="0.01" value={f.actual} onChange={set("actual")} disabled={locked} />
+              <TextInput type="number" min="0" step="0.01" value={f.actual} onChange={set("actual")} disabled={fieldsLocked} />
             </Field>
           </div>
           <Field label="Reason">
@@ -3925,7 +3946,7 @@ function CostModal({ data, onClose, onSave }) {
               value={f.reason}
               onChange={set("reason")}
               placeholder="Any context worth recording — e.g. why Terms, partial payment, delay, etc."
-              disabled={locked}
+              disabled={fieldsLocked}
             />
           </Field>
         </>
@@ -3937,7 +3958,7 @@ function CostModal({ data, onClose, onSave }) {
             value={f.rejectionReason}
             onChange={set("rejectionReason")}
             placeholder="Why is this cost being rejected? (e.g. missing quotation, exceeds budget, duplicate entry)"
-            disabled={locked}
+            disabled={fieldsLocked}
           />
         </Field>
       )}
