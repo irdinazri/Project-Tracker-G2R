@@ -336,7 +336,17 @@ function applyTargetOverrunPatch(task, projectEndDate) {
 // date is still in the past (both go through statusChangePatch above, not
 // this function).
 function reconcilePlannedEndOnDateEdit(original, merged) {
-  if (merged.status !== "Completed") return {};
+  // Both checks matter, not just the second one. Requiring ONLY
+  // merged.status === "Completed" was the bug: completing an overdue task
+  // via the Status dropdown legitimately changes both status AND end in
+  // the same update (that's statusChangePatch's job, and it's correct) —
+  // so a date-changed check alone couldn't tell that apart from a raw
+  // date-field edit, and wiped the plannedEnd statusChangePatch had just
+  // set correctly. Requiring the task to have ALREADY been Completed
+  // BEFORE this update too means this only fires when status genuinely
+  // didn't change in this operation — i.e. only on a direct date edit to
+  // an already-decided task, never on the transition into Completed.
+  if (original.status !== "Completed" || merged.status !== "Completed") return {};
   const dateChanged = merged.start !== original.start || merged.end !== original.end;
   if (!dateChanged) return {};
   return { plannedEnd: "" };
