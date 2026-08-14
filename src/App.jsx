@@ -3836,15 +3836,17 @@ function CostModal({ data, onClose, onSave }) {
   const isApproved = f.approval === "Approved";
   const isRejected = f.approval === "Rejected";
 
-  // Finance: every field EXCEPT the Approval dropdown itself locks once a
-  // decision is recorded. Deliberately reads live f.approval, not the
-  // original data.approval — so if Finance flips the dropdown back to
-  // Pending, every other field unlocks immediately in this same modal
-  // session, without needing to close and reopen it. This is the intended
-  // way to fix a wrong decision: reopen it, then edit, then save. Deleting
-  // a decided entry is separately blocked for Finance (see costLockState),
-  // so this dropdown is their only path back in.
-  const financeFieldsLocked = canSetCostApproval && f.approval !== "Pending";
+// Locked only if this entry ALREADY had a decision when the modal opened
+  // (data.approval — the prop, fixed for the life of this modal instance)
+  // AND that decision hasn't been flipped back to Pending yet in this
+  // session. Checking live f.approval alone was the bug: it locked every
+  // field the instant Finance picked "Approved" on a still-Pending entry,
+  // before they'd had a chance to fill in Payment method, Actual cost, or
+  // Reason — the exact fields needed to record that decision in the first
+  // place.
+  const originalApproval = (data && data.approval) || "Pending";
+  const wasAlreadyDecided = originalApproval !== "Pending";
+  const financeFieldsLocked = canSetCostApproval && wasAlreadyDecided && f.approval !== "Pending";
   const fieldsLocked = locked || financeFieldsLocked;
 
   const handleSubmit = () => {
