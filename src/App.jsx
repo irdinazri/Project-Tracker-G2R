@@ -320,9 +320,32 @@ function applyTargetOverrunPatch(task, projectEndDate) {
   return {};
 }
 
+// applyTargetOverrunPatch above deliberately skips any task that's already
+// Completed or Delayed — it assumes those tasks don't need re-checking. But
+// that leaves a gap: if someone directly edits the Start/Finish dates on a
+// task that's ALREADY Completed (fixing a data-entry mistake, backfilling
+// real dates, correcting a bad bulk-generate run), any plannedEnd it's
+// carrying stays frozen at whatever it was BEFORE the edit — and every
+// "completed Nd late" display then compares the freshly-edited date against
+// that stale snapshot, producing a lateness figure with no relationship to
+// anything the person actually did. This clears plannedEnd specifically in
+// that situation, treating a direct date edit on a Completed task as a
+// correction, not a delay event. A genuine "this finished late" record
+// should only ever come from the two deliberate paths that already exist:
+// marking a task Delayed by hand, or completing a task while its Finish
+// date is still in the past (both go through statusChangePatch above, not
+// this function).
+function reconcilePlannedEndOnDateEdit(original, merged) {
+  if (merged.status !== "Completed") return {};
+  const dateChanged = merged.start !== original.start || merged.end !== original.end;
+  if (!dateChanged) return {};
+  return { plannedEnd: "" };
+}
+
 // How many days past its Finish date a task is, right now.
 function daysOverdueCount(task, todayVal) {
   if (!task.end || task.end >= todayVal || task.status === "Completed") return 0;
+
   return Math.max(1, Math.round(daysBetween(task.end, todayVal)));
 }
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -1469,7 +1492,8 @@ export default function App() {
                     l.map((t) => {
                       if (t.id !== id) return t;
                       const merged = { ...t, ...patch };
-                      return { ...merged, ...applyTargetOverrunPatch(merged, selected.endDate) };
+                      const reconciled = { ...merged, ...reconcilePlannedEndOnDateEdit(t, merged) };
+                      return { ...reconciled, ...applyTargetOverrunPatch(reconciled, selected.endDate) };
                     })
                   )
                 }
@@ -1531,7 +1555,8 @@ export default function App() {
                 return l.map((t) => {
                   if (t.id !== modal.data.id) return t;
                   const merged = { ...t, ...data };
-                  return { ...merged, ...applyTargetOverrunPatch(merged, selected.endDate) };
+                  const reconciled = { ...merged, ...reconcilePlannedEndOnDateEdit(t, merged) };
+                  return { ...reconciled, ...applyTargetOverrunPatch(reconciled, selected.endDate) };
                 });
               }
               const newTask = { id: uid(), ...data };
@@ -1599,8 +1624,19 @@ export default function App() {
           worksWeekends={!!selected.worksWeekends}
           onClose={() => setModal(null)}
           onGenerate={(newTasks) => {
-            const patched = newTasks.map((t) => ({ ...t, ...applyTargetOverrunPatch(t, selected.endDate) }));
-            updateProject(selected.id, { tasks: [...(selected.tasks || []), ...patched] });
+            // Deliberately NOT running applyTargetOverrunPatch here. A
+            // freshly bulk-generated schedule is a draft for review — the
+            // project's own target finish date is often set as a rough
+            // placeholder before the real site-by-site schedule exists, so
+            // auto-flagging every task "Delayed" the instant it's created
+            // (because it runs past that placeholder) produces a schedule
+            // that's wrong from the moment it's built, stamped with a
+            // shared, meaningless plannedEnd across every task. The same
+            // overrun check still applies the moment someone actually
+            // edits a task's dates afterward (see onQuickUpdateTask and
+            // TaskModal's onSave) — that's the right point to catch a real
+            // slip, not initial generation.
+            updateProject(selected.id, { tasks: [...(selected.tasks || []), ...newTasks] });
             setModal(null);
           }}
         />
