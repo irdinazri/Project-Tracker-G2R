@@ -68,7 +68,17 @@ const PROJECT_STATUSES = ["Not Started", "In Progress", "On Hold", "Completed", 
 const TASK_STATUSES = ["Not Started", "In Progress", "Delayed", "Completed"];
 const COST_CATEGORIES = ["SUBCON", "RAW MATERIAL", "TRANSPORT / LOGISTIC", "OTHER COST"];
 const APPROVAL_STATUSES = ["Pending", "Approved", "Rejected"];
-const PAYMENT_METHODS = ["Cash", "Cheque", "Terms"];
+const PAYMENT_METHODS = ["Online Transfer", "Cheque", "Cash"];
+// Payment structure, separate from Payment Method (which is HOW money
+// moves; Terms is WHAT schedule/split it follows). Splits drive both the
+// label percentages and how many payment amount boxes the form shows —
+// "100" is a single lump-sum box, the other two are two-stage.
+const PAYMENT_TERMS_OPTIONS = ["40-60", "50-50", "100"];
+const PAYMENT_TERMS_SPLITS = {
+  "40-60": [40, 60],
+  "50-50": [50, 50],
+  "100": [100],
+};
 const ISSUE_SEVERITIES = ["Low", "Medium", "High", "Critical"];
 const ISSUE_STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
 
@@ -77,11 +87,12 @@ const HEALTH_COLOR = { RED: T.red, AMBER: T.amber, GREEN: T.green };
 const HEALTH_SOFT = { RED: T.redSoft, AMBER: T.amberSoft, GREEN: T.greenSoft };
 
 /* ============================== ROLES ============================== */
-const ROLES = { COORDINATOR: "coordinator", FINANCE: "finance", SUBCON: "subcon" };
+const ROLES = { COORDINATOR: "coordinator", FINANCE: "finance", SUBCON: "subcon", ADMIN: "admin" };
 const ROLE_LABELS = {
   [ROLES.COORDINATOR]: "Program Coordinator",
   [ROLES.FINANCE]: "Finance",
   [ROLES.SUBCON]: "Subcon",
+  [ROLES.ADMIN]: "Super Admin",
 };
 const ROLE_STORAGE_KEY = "g2r-tracker:role";
 const SUBCON_NAME_STORAGE_KEY = "g2r-tracker:subcon-name";
@@ -104,7 +115,8 @@ function usePermissions() {
   return React.useContext(PermissionsContext);
 }
 
-function RoleSelectScreen({ onSelect }) {
+function RoleSelectScreen({ onSelect, showAdmin }) {
+  const visibleRoles = Object.values(ROLES).filter((r) => r !== ROLES.ADMIN || showAdmin);
   return (
     <div className="w-full min-h-screen flex items-center justify-center px-4" style={{ background: T.bg }}>
       <div
@@ -120,7 +132,7 @@ function RoleSelectScreen({ onSelect }) {
             Pick your role — this changes what you can see and edit.
           </p>
         </div>
-        {Object.values(ROLES).map((r) => (
+        {visibleRoles.map((r) => (
           <button
             key={r}
             onClick={() => onSelect(r)}
@@ -449,6 +461,17 @@ const fmtDate = (d) =>
     ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
     : "—";
 
+// One-line summary of a cost entry's payment terms, e.g. "40-60 · RM4,000.00 + RM6,000.00"
+// or "100 · RM25,000.00". Returns null if no terms structure is set (older
+// entries, or ones that never used the terms breakdown), so callers can
+// decide whether to render a sub-line at all.
+function fmtPaymentTerms(c) {
+  const split = c.paymentTerms ? PAYMENT_TERMS_SPLITS[c.paymentTerms] : null;
+  if (!split) return null;
+  const amounts = split.length > 1 ? [c.payment1, c.payment2] : [c.payment1];
+  return `${c.paymentTerms} · ${amounts.map((a) => fmtRM(a)).join(" + ")}`;
+}
+
 // Once Finance records a decision (Approved/Rejected), the entry locks:
 // Coordinator can no longer edit it, Finance can no longer delete it. Both
 // exist to protect the audit trail once a call has been made — while still
@@ -459,6 +482,9 @@ const fmtDate = (d) =>
 // entry at all, change deleteLocked to just `decided` (see note at bottom
 // of chat).
 function costLockState(cost, role) {
+  // Admin overrides both locks outright — full control was the explicit
+  // point of that role, so it doesn't inherit either restriction.
+  if (role === ROLES.ADMIN) return { editLocked: false, deleteLocked: false };
   const decided = cost.approval && cost.approval !== "Pending";
   return {
     editLocked: decided && role === ROLES.COORDINATOR,
@@ -1181,6 +1207,22 @@ export default function App() {
       return null;
     }
   });
+  // Read once at load, from the URL, not persisted anywhere — visiting the
+  // site with ?admin=1 on the end of the link reveals the Super Admin
+  // button on the role screen for this session. Reloading without that
+  // flag hides it again, though a role already chosen and saved in
+  // localStorage on this device keeps working regardless (same as every
+  // other role) — this only controls whether the button is OFFERED, not
+  // whether an already-selected admin session keeps functioning. This is
+  // a visibility control, not real access control — see the standing note
+  // on this role for what that does and doesn't mean.
+  const [showAdmin] = useState(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("admin") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [subconName, setSubconName] = useState(() => {
     try {
       return localStorage.getItem(SUBCON_NAME_STORAGE_KEY) || "";
@@ -1204,13 +1246,13 @@ export default function App() {
     setRole(null);
     setSubconName("");
   };
-  const canEditProject = role === ROLES.COORDINATOR;
-  const canEditTasks = role === ROLES.COORDINATOR;
-  const canEditCosts = role === ROLES.COORDINATOR || role === ROLES.FINANCE;
-  const canSetCostApproval = role === ROLES.FINANCE;
-  const canEditIssues = role === ROLES.COORDINATOR;
-  const canAddIssues = role === ROLES.COORDINATOR || role === ROLES.SUBCON;
-  const canPrintReport = role === ROLES.COORDINATOR || role === ROLES.FINANCE;
+  const canEditProject = role === ROLES.COORDINATOR || role === ROLES.ADMIN;
+  const canEditTasks = role === ROLES.COORDINATOR || role === ROLES.ADMIN;
+  const canEditCosts = role === ROLES.COORDINATOR || role === ROLES.FINANCE || role === ROLES.ADMIN;
+  const canSetCostApproval = role === ROLES.FINANCE || role === ROLES.ADMIN;
+  const canEditIssues = role === ROLES.COORDINATOR || role === ROLES.ADMIN;
+  const canAddIssues = role === ROLES.COORDINATOR || role === ROLES.SUBCON || role === ROLES.ADMIN;
+  const canPrintReport = role === ROLES.COORDINATOR || role === ROLES.FINANCE || role === ROLES.ADMIN;
   const canSeeFinancials = role !== ROLES.SUBCON;
 
   const [projects, setProjects] = useState([]);
@@ -1362,7 +1404,7 @@ export default function App() {
   }, [visibleProjects]);
 
   if (!role) {
-    return <RoleSelectScreen onSelect={chooseRole} />;
+    return <RoleSelectScreen onSelect={chooseRole} showAdmin={showAdmin} />;
   }
   if (role === ROLES.SUBCON && !subconName) {
     return (
@@ -2231,7 +2273,12 @@ function PrintReport({ project }) {
                   <td style={td}>{c.supplier || "—"}</td>
                   <td style={td}>{fmtRM(c.budgeted)}</td>
                   <td style={td}>{isApproved ? fmtRM(c.actual) : "—"}</td>
-                  <td style={td}>{isApproved ? (c.paymentMethod || "—") : "—"}</td>
+                  <td style={td}>
+                    {isApproved ? (c.paymentMethod || "—") : "—"}
+                    {isApproved && fmtPaymentTerms(c) && (
+                      <div style={{ fontSize: 10.5, color: PR.dim, marginTop: 2 }}>{fmtPaymentTerms(c)}</div>
+                    )}
+                  </td>
                   <td style={td}>{c.approval}</td>
                 </tr>
                 );
@@ -2347,6 +2394,14 @@ function SidebarContent({ view, setView, setSelectedId }) {
             {role === ROLES.SUBCON && subconName ? ` — ${subconName}` : ""}
           </strong>
         </span>
+        {role === ROLES.ADMIN && (
+          <span
+            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium"
+            style={{ background: T.amberSoft, color: T.amber }}
+          >
+            <AlertTriangle size={11} /> All locks bypassed — edits and deletes aren't restricted in this mode
+          </span>
+        )}
         <button
           type="button"
           onClick={switchRole}
@@ -3341,7 +3396,14 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                         <td className="px-4 py-2.5" style={{ color: T.textDim }}>{c.supplier || "—"}</td>
                         <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(c.budgeted)}</td>
                         <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRM(c.actual) : "—"}</td>
-                        <td className="px-4 py-2.5" style={{ color: T.textDim }}>{isApproved ? (c.paymentMethod || "—") : "—"}</td>
+                        <td className="px-4 py-2.5" style={{ color: T.textDim }}>
+                          {isApproved ? (c.paymentMethod || "—") : "—"}
+                          {isApproved && fmtPaymentTerms(c) && (
+                            <div className="text-xs mt-1" style={{ color: T.textFaint }}>
+                              {fmtPaymentTerms(c)}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5">
                           <Pill
                             color={c.approval === "Approved" ? T.green : c.approval === "Rejected" ? T.red : T.amber}
@@ -3409,6 +3471,12 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                         <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRM(c.actual) : "—"}</div>
                       </div>
                     </div>
+                    {isApproved && (c.paymentMethod || fmtPaymentTerms(c)) && (
+                      <div className="text-xs" style={{ color: T.textFaint }}>
+                        {c.paymentMethod || "—"}
+                        {fmtPaymentTerms(c) ? ` · ${fmtPaymentTerms(c)}` : ""}
+                      </div>
+                    )}
                     {isApproved && c.reason && (
                       <div className="text-xs" style={{ color: T.textFaint }}>
                         <span style={{ fontWeight: 500 }}>Reason: </span>{c.reason}
@@ -4218,7 +4286,9 @@ function CostModal({ data, onClose, onSave }) {
   // Defensive, not just a UI nicety: the Edit button is already hidden for
   // this case in CostsTab, so in normal use this only fires on a race
   // between two open tabs (e.g. Finance approves in one tab while a
-  // Coordinator already has the edit modal open on the same entry).
+  // Coordinator already has the edit modal open on the same entry). Admin
+  // is explicitly exempt — see the note by financeFieldsLocked below for
+  // why this is a deliberate design choice, not an oversight.
   const locked =
     role === ROLES.COORDINATOR && data && data.approval && data.approval !== "Pending";
 
@@ -4229,6 +4299,9 @@ function CostModal({ data, onClose, onSave }) {
     budgeted: "",
     actual: "",
     paymentMethod: "",
+    paymentTerms: "",
+    payment1: "",
+    payment2: "",
     reason: "",
     rejectionReason: "",
     approval: "Pending",
@@ -4238,12 +4311,41 @@ function CostModal({ data, onClose, onSave }) {
   const isApproved = f.approval === "Approved";
   const isRejected = f.approval === "Rejected";
 
+  // Locked only if this entry ALREADY had a decision when the modal opened
+  // (data.approval — the prop, fixed for the life of this modal instance)
+  // AND that decision hasn't been flipped back to Pending yet in this
+  // session. Checking live f.approval alone was the original bug: it
+  // locked every field the instant Finance picked "Approved" on a still-
+  // Pending entry, before they'd had a chance to fill in Payment method,
+  // Actual cost, or Reason — the exact fields needed to record that
+  // decision in the first place.
+  const originalApproval = (data && data.approval) || "Pending";
+  const wasAlreadyDecided = originalApproval !== "Pending";
+  // Admin bypasses this entirely — full, no-friction control was the
+  // explicit point of that role. Everyone else who can set approval
+  // status (currently just Finance) still has to pass through Pending to
+  // regain field access on a decided entry, which is what keeps a
+  // recorded decision from being casually revised in place.
+  const financeFieldsLocked =
+    role !== ROLES.ADMIN && canSetCostApproval && wasAlreadyDecided && f.approval !== "Pending";
+  const fieldsLocked = locked || financeFieldsLocked;
+
+  // Once a Terms structure is picked, Actual becomes the sum of the
+  // payment box(es) below rather than something typed independently — one
+  // number to keep in sync instead of two that could quietly disagree.
+  // Entries that predate this feature (or where Terms is left blank) keep
+  // the old plain-typed-number behaviour untouched.
+  const termsSplit = f.paymentTerms ? PAYMENT_TERMS_SPLITS[f.paymentTerms] : null;
+  const computedActual = termsSplit ? (Number(f.payment1) || 0) + (Number(f.payment2) || 0) : null;
+
   const handleSubmit = () => {
     if (locked) return;
     onSave({
       ...f,
       budgeted: Number(f.budgeted) || 0,
-      actual: Number(f.actual) || 0,
+      actual: termsSplit ? computedActual : Number(f.actual) || 0,
+      payment1: termsSplit ? Number(f.payment1) || 0 : f.payment1,
+      payment2: termsSplit && termsSplit.length > 1 ? Number(f.payment2) || 0 : "",
     });
   };
 
@@ -4264,9 +4366,19 @@ function CostModal({ data, onClose, onSave }) {
           edit a cost line once a decision is recorded.
         </div>
       )}
+      {financeFieldsLocked && (
+        <div
+          className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm"
+          style={{ background: T.amberSoft, color: T.amber }}
+        >
+          <AlertTriangle size={14} />
+          You already recorded a decision on this entry — fields are locked. To correct
+          something, set Approval status back to Pending below, then edit and save.
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3.5">
         <Field label="Category">
-          <Select value={f.category} onChange={set("category")} disabled={locked}>
+          <Select value={f.category} onChange={set("category")} disabled={fieldsLocked}>
             {COST_CATEGORIES.map((c) => (
               <option key={c}>{c}</option>
             ))}
@@ -4299,35 +4411,87 @@ function CostModal({ data, onClose, onSave }) {
         </p>
       )}
       <Field label="Description">
-        <TextInput value={f.description} onChange={set("description")} placeholder="What is this cost for?" disabled={locked} />
+        <TextInput value={f.description} onChange={set("description")} placeholder="What is this cost for?" disabled={fieldsLocked} />
       </Field>
       <Field label="Supplier">
-        <TextInput value={f.supplier} onChange={set("supplier")} placeholder="Vendor / supplier name" disabled={locked} />
+        <TextInput value={f.supplier} onChange={set("supplier")} placeholder="Vendor / supplier name" disabled={fieldsLocked} />
       </Field>
       <Field label="Budgeted (RM)">
-        <TextInput type="number" min="0" step="0.01" value={f.budgeted} onChange={set("budgeted")} disabled={locked} />
+        <TextInput type="number" min="0" step="0.01" value={f.budgeted} onChange={set("budgeted")} disabled={fieldsLocked} />
       </Field>
       {isApproved && (
         <>
           <div className="grid grid-cols-2 gap-3.5">
             <Field label="Payment method">
-              <Select value={f.paymentMethod || ""} onChange={set("paymentMethod")} disabled={locked}>
+              <Select value={f.paymentMethod || ""} onChange={set("paymentMethod")} disabled={fieldsLocked}>
                 <option value="">Select method</option>
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m}>{m}</option>
                 ))}
               </Select>
             </Field>
-            <Field label="Actual (RM)">
-              <TextInput type="number" min="0" step="0.01" value={f.actual} onChange={set("actual")} disabled={locked} />
+            <Field label="Payment terms">
+              <Select
+                required
+                value={f.paymentTerms || ""}
+                onChange={(e) => {
+                  // Switching terms clears the payment boxes rather than
+                  // leaving a stale amount sitting under a percentage label
+                  // that no longer applies (e.g. a "60%" figure left
+                  // behind after switching from 40-60 to 50-50).
+                  setF({ ...f, paymentTerms: e.target.value, payment1: "", payment2: "" });
+                }}
+                disabled={fieldsLocked}
+              >
+                <option value="">Select terms</option>
+                {PAYMENT_TERMS_OPTIONS.map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </Select>
             </Field>
           </div>
+          {termsSplit && (
+            <div className={termsSplit.length > 1 ? "grid grid-cols-2 gap-3.5" : ""}>
+              {termsSplit.map((pct, idx) => (
+                <Field
+                  key={idx}
+                  label={termsSplit.length > 1 ? `${idx === 0 ? "First" : "Second"} payment (${pct}%)` : `Payment (${pct}%)`}
+                >
+                  <TextInput
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={idx === 0 ? f.payment1 : f.payment2}
+                    onChange={set(idx === 0 ? "payment1" : "payment2")}
+                    disabled={fieldsLocked}
+                  />
+                </Field>
+              ))}
+            </div>
+          )}
+          <Field label="Actual (RM)">
+            {termsSplit ? (
+              <>
+                <TextInput
+                  type="number"
+                  value={computedActual}
+                  disabled
+                  style={{ background: T.bg, color: T.textFaint }}
+                />
+                <p className="text-xs mt-1" style={{ color: T.textFaint }}>
+                  Auto-calculated as the sum of the payment{termsSplit.length > 1 ? "s" : ""} above.
+                </p>
+              </>
+            ) : (
+              <TextInput type="number" min="0" step="0.01" value={f.actual} onChange={set("actual")} disabled={fieldsLocked} />
+            )}
+          </Field>
           <Field label="Reason">
             <TextArea
               value={f.reason}
               onChange={set("reason")}
-              placeholder="Any context worth recording — e.g. why Terms, partial payment, delay, etc."
-              disabled={locked}
+              placeholder="Any context worth recording — e.g. partial payment, delay, discount, etc."
+              disabled={fieldsLocked}
             />
           </Field>
         </>
@@ -4339,14 +4503,14 @@ function CostModal({ data, onClose, onSave }) {
             value={f.rejectionReason}
             onChange={set("rejectionReason")}
             placeholder="Why is this cost being rejected? (e.g. missing quotation, exceeds budget, duplicate entry)"
-            disabled={locked}
+            disabled={fieldsLocked}
           />
         </Field>
       )}
       {f.approval === "Pending" && (
         <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
-          Actual cost, payment method and reason appear once this entry is Approved. A rejection
-          reason is requested once it's Rejected.
+          Actual cost, payment method, payment terms and reason appear once this entry is
+          Approved. A rejection reason is requested once it's Rejected.
         </p>
       )}
     </Modal>
