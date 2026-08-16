@@ -2267,7 +2267,7 @@ function PrintReport({ project }) {
                     {c.description || "—"}
                     {isApproved && c.reason && (
                       <div style={{ fontSize: 10.5, color: PR.dim, marginTop: 2 }}>
-                        <strong>Reason:</strong> {c.reason}
+                        <strong>Comment(s):</strong> {c.reason}
                       </div>
                     )}
                     {c.approval === "Rejected" && c.rejectionReason && (
@@ -3388,7 +3388,7 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                           {c.description || "—"}
                           {isApproved && c.reason && (
                             <div className="text-xs mt-1" style={{ color: T.textFaint }}>
-                              <span style={{ fontWeight: 500 }}>Reason: </span>
+                              <span style={{ fontWeight: 500 }}>Comment(s): </span>
                               {c.reason}
                             </div>
                           )}
@@ -3485,7 +3485,7 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                     )}
                     {isApproved && c.reason && (
                       <div className="text-xs" style={{ color: T.textFaint }}>
-                        <span style={{ fontWeight: 500 }}>Reason: </span>{c.reason}
+                        <span style={{ fontWeight: 500 }}>Comment(s): </span>{c.reason}
                       </div>
                     )}
                     {c.approval === "Rejected" && c.rejectionReason && (
@@ -4548,7 +4548,7 @@ function CostModal({ data, onClose, onSave }) {
               <TextInput type="number" min="0" step="0.01" value={f.actual} onChange={set("actual")} disabled={fieldsLocked} />
             )}
           </Field>
-          <Field label="Reason">
+          <Field label="Comment(s)">
             <TextArea
               value={f.reason}
               onChange={set("reason")}
