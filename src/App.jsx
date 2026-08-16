@@ -468,7 +468,13 @@ const fmtDate = (d) =>
 function fmtPaymentTerms(c) {
   const split = c.paymentTerms ? PAYMENT_TERMS_SPLITS[c.paymentTerms] : null;
   if (!split) return null;
-  const amounts = split.length > 1 ? [c.payment1, c.payment2] : [c.payment1];
+  let amounts = Array.isArray(c.payments) ? c.payments : null;
+  if (!amounts || amounts.length === 0) {
+    // Backward compat with the fixed payment1/payment2 format used before
+    // "+ Add another payment" existed.
+    amounts = [c.payment1, c.payment2].filter((v) => v !== undefined && v !== "");
+  }
+  if (amounts.length === 0) return null;
   return `${c.paymentTerms} · ${amounts.map((a) => fmtRM(a)).join(" + ")}`;
 }
 
@@ -4292,20 +4298,29 @@ function CostModal({ data, onClose, onSave }) {
   const locked =
     role === ROLES.COORDINATOR && data && data.approval && data.approval !== "Pending";
 
-  const [f, setF] = useState({
-    category: COST_CATEGORIES[0],
-    description: "",
-    supplier: "",
-    budgeted: "",
-    actual: "",
-    paymentMethod: "",
-    paymentTerms: "",
-    payment1: "",
-    payment2: "",
-    reason: "",
-    rejectionReason: "",
-    approval: "Pending",
-    ...data,
+  const [f, setF] = useState(() => {
+    const base = {
+      category: COST_CATEGORIES[0],
+      description: "",
+      supplier: "",
+      budgeted: "",
+      actual: "",
+      paymentMethod: "",
+      paymentTerms: "",
+      payments: [],
+      reason: "",
+      rejectionReason: "",
+      approval: "Pending",
+      ...data,
+    };
+    // Migrate the earlier payment1/payment2 fields (the previous version of
+    // this form, before "+ Add another payment" existed) into the new
+    // flexible list, so entries already saved that way still edit and
+    // total correctly instead of appearing to have lost their data.
+    if ((!Array.isArray(base.payments) || base.payments.length === 0) && (data?.payment1 || data?.payment2)) {
+      base.payments = [data.payment1, data.payment2].filter((v) => v !== undefined && v !== "");
+    }
+    return base;
   });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const isApproved = f.approval === "Approved";
@@ -4330,13 +4345,23 @@ function CostModal({ data, onClose, onSave }) {
     role !== ROLES.ADMIN && canSetCostApproval && wasAlreadyDecided && f.approval !== "Pending";
   const fieldsLocked = locked || financeFieldsLocked;
 
-  // Once a Terms structure is picked, Actual becomes the sum of the
-  // payment box(es) below rather than something typed independently — one
-  // number to keep in sync instead of two that could quietly disagree.
-  // Entries that predate this feature (or where Terms is left blank) keep
-  // the old plain-typed-number behaviour untouched.
+  // Once a Terms structure is picked, Actual becomes the sum of every
+  // payment box below rather than something typed independently — one
+  // number to keep in sync instead of two (or more) that could quietly
+  // disagree. Entries that predate this feature (or where Terms is left
+  // blank) keep the old plain-typed-number behaviour untouched.
   const termsSplit = f.paymentTerms ? PAYMENT_TERMS_SPLITS[f.paymentTerms] : null;
-  const computedActual = termsSplit ? (Number(f.payment1) || 0) + (Number(f.payment2) || 0) : null;
+  const computedActual = termsSplit
+    ? f.payments.reduce((s, v) => s + (Number(v) || 0), 0)
+    : null;
+
+  const setPaymentAt = (idx, value) => {
+    const next = [...f.payments];
+    next[idx] = value;
+    setF({ ...f, payments: next });
+  };
+  const addPaymentBox = () => setF({ ...f, payments: [...f.payments, ""] });
+  const removePaymentAt = (idx) => setF({ ...f, payments: f.payments.filter((_, i) => i !== idx) });
 
   const handleSubmit = () => {
     if (locked) return;
@@ -4344,8 +4369,11 @@ function CostModal({ data, onClose, onSave }) {
       ...f,
       budgeted: Number(f.budgeted) || 0,
       actual: termsSplit ? computedActual : Number(f.actual) || 0,
-      payment1: termsSplit ? Number(f.payment1) || 0 : f.payment1,
-      payment2: termsSplit && termsSplit.length > 1 ? Number(f.payment2) || 0 : "",
+      payments: termsSplit ? f.payments.map((v) => Number(v) || 0) : f.payments,
+      // Old fields dropped from new saves now that payments[] carries this —
+      // kept out entirely rather than left stale alongside the real data.
+      payment1: undefined,
+      payment2: undefined,
     });
   };
 
@@ -4435,11 +4463,16 @@ function CostModal({ data, onClose, onSave }) {
                 required
                 value={f.paymentTerms || ""}
                 onChange={(e) => {
-                  // Switching terms clears the payment boxes rather than
-                  // leaving a stale amount sitting under a percentage label
-                  // that no longer applies (e.g. a "60%" figure left
-                  // behind after switching from 40-60 to 50-50).
-                  setF({ ...f, paymentTerms: e.target.value, payment1: "", payment2: "" });
+                  // Switching terms resets the payment list to match the
+                  // new split — including clearing any extra boxes added
+                  // via "+" — rather than leaving amounts sitting under
+                  // percentage labels (or a count) that no longer apply.
+                  const newSplit = e.target.value ? PAYMENT_TERMS_SPLITS[e.target.value] : null;
+                  setF({
+                    ...f,
+                    paymentTerms: e.target.value,
+                    payments: newSplit ? Array(newSplit.length).fill("") : [],
+                  });
                 }}
                 disabled={fieldsLocked}
               >
@@ -4451,22 +4484,51 @@ function CostModal({ data, onClose, onSave }) {
             </Field>
           </div>
           {termsSplit && (
-            <div className={termsSplit.length > 1 ? "grid grid-cols-2 gap-3.5" : ""}>
-              {termsSplit.map((pct, idx) => (
-                <Field
-                  key={idx}
-                  label={termsSplit.length > 1 ? `${idx === 0 ? "First" : "Second"} payment (${pct}%)` : `Payment (${pct}%)`}
-                >
-                  <TextInput
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={idx === 0 ? f.payment1 : f.payment2}
-                    onChange={set(idx === 0 ? "payment1" : "payment2")}
-                    disabled={fieldsLocked}
-                  />
-                </Field>
-              ))}
+            <div className="flex flex-col gap-2.5">
+              <div className="grid grid-cols-2 gap-3.5">
+                {f.payments.map((val, idx) => {
+                  const isBaseSlot = idx < termsSplit.length;
+                  const label = isBaseSlot
+                    ? termsSplit.length > 1
+                      ? `${idx === 0 ? "First" : "Second"} payment (${termsSplit[idx]}%)`
+                      : `Payment (${termsSplit[idx]}%)`
+                    : `Additional payment ${idx + 1}`;
+                  return (
+                    <div key={idx} className="flex items-end gap-1.5">
+                      <div className="flex-1">
+                        <Field label={label}>
+                          <TextInput
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={val}
+                            onChange={(e) => setPaymentAt(idx, e.target.value)}
+                            disabled={fieldsLocked}
+                          />
+                        </Field>
+                      </div>
+                      {!isBaseSlot && (
+                        <IconBtn
+                          title="Remove this payment"
+                          danger
+                          disabled={fieldsLocked}
+                          onClick={() => removePaymentAt(idx)}
+                        >
+                          <Trash2 size={15} />
+                        </IconBtn>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <Button type="button" variant="ghost" onClick={addPaymentBox} disabled={fieldsLocked}>
+                <Plus size={14} /> Add another payment
+              </Button>
+              <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
+                Use this when a payment actually lands in more than {termsSplit.length} transaction
+                {termsSplit.length === 1 ? "" : "s"} — e.g. the {termsSplit[termsSplit.length - 1]}%
+                portion arrives as two separate transfers.
+              </p>
             </div>
           )}
           <Field label="Actual (RM)">
@@ -4479,7 +4541,7 @@ function CostModal({ data, onClose, onSave }) {
                   style={{ background: T.bg, color: T.textFaint }}
                 />
                 <p className="text-xs mt-1" style={{ color: T.textFaint }}>
-                  Auto-calculated as the sum of the payment{termsSplit.length > 1 ? "s" : ""} above.
+                  Auto-calculated as the sum of the payment{f.payments.length > 1 ? "s" : ""} above.
                 </p>
               </>
             ) : (
