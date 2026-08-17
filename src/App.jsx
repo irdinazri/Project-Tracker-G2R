@@ -4550,7 +4550,7 @@ function CostModal({ data, onClose, onSave }) {
           {termsSplit && (
             <div className="flex flex-col gap-2.5">
               {(() => {
-                const totalPayments = f.payments.reduce((s, v) => s + (Number(v) || 0), 0);
+                const budgetedNum = Number(f.budgeted) || 0;
                 return f.payments.map((val, idx) => {
                   const isBaseSlot = idx < termsSplit.length;
                   const label = isBaseSlot
@@ -4560,8 +4560,18 @@ function CostModal({ data, onClose, onSave }) {
                         : "Second payment"
                       : "Payment"
                     : `Additional payment ${idx + 1}`;
-                  const thisAmount = Number(val) || 0;
-                  const pctDisplay = totalPayments > 0 ? `${Math.round((thisAmount / totalPayments) * 100)}%` : "—";
+                  // Each box unlocks only once the one before it has an
+                  // actual recorded amount — payments happen one at a time
+                  // in a staged terms schedule, so the form shouldn't let
+                  // someone fill in the second before the first exists.
+                  const isUnlocked = idx === 0 || (Number(f.payments[idx - 1]) || 0) > 0;
+                  const isDisabled = fieldsLocked || !isUnlocked;
+                  const pctDisplay =
+                    val === "" || val === undefined || val === null
+                      ? "—"
+                      : budgetedNum > 0
+                      ? `${Math.round((Number(val) / budgetedNum) * 100)}%`
+                      : "—";
                   return (
                     <div key={idx} className="flex items-end gap-1.5">
                       <div className="flex-1">
@@ -4572,7 +4582,8 @@ function CostModal({ data, onClose, onSave }) {
                             step="0.01"
                             value={val}
                             onChange={(e) => setPaymentAt(idx, e.target.value)}
-                            disabled={fieldsLocked}
+                            disabled={isDisabled}
+                            placeholder={!isUnlocked ? "Enter the previous payment first" : undefined}
                           />
                         </Field>
                       </div>
@@ -4604,9 +4615,10 @@ function CostModal({ data, onClose, onSave }) {
                 <Plus size={14} /> Add another payment
               </Button>
               <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
-                The % column is calculated live from the amounts above, as each payment's share of
-                their combined total — it isn't fixed to the {f.paymentTerms} split, so it updates
-                automatically as you fill in or add payments.
+                The % column shows each payment as a share of Budgeted (RM) above — not of the
+                other payments — so it reflects how much of the agreed cost that transaction
+                covers. Each payment unlocks only after the one before it is recorded, since these
+                land one at a time in practice.
               </p>
             </div>
           )}
