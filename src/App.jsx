@@ -4591,11 +4591,9 @@ function CostModal({ data, onClose, onSave }) {
           </div>
           {termsSplit && (
             <div className="flex flex-col gap-4">
-              {termsSplit.map((_, phaseIdx) => {
+              {termsSplit.map((phaseTargetPct, phaseIdx) => {
                 const phasePayments = f.payments[phaseIdx] || [""];
                 const phaseLabel = termsSplit.length > 1 ? (phaseIdx === 0 ? "First phase" : "Second phase") : null;
-                const phaseSum = phasePayments.reduce((s, v) => s + (Number(v) || 0), 0);
-                const phaseLivePct = budgetedNum > 0 ? Math.round((phaseSum / budgetedNum) * 100) : null;
                 // The next phase only opens once THIS phase has actually
                 // started (its first payment has a real amount) — not once
                 // it's fully paid out. See the note in chat on why this is
@@ -4609,8 +4607,7 @@ function CostModal({ data, onClose, onSave }) {
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-px" style={{ background: T.border }} />
                         <span className="text-xs font-semibold uppercase tracking-wide shrink-0" style={{ color: T.textFaint }}>
-                          {phaseLabel}
-                          {phaseLivePct != null ? ` (${phaseLivePct}%)` : ""}
+                          {phaseLabel} ({phaseTargetPct}%)
                         </span>
                         <div className="flex-1 h-px" style={{ background: T.border }} />
                       </div>
@@ -4676,9 +4673,9 @@ function CostModal({ data, onClose, onSave }) {
                 );
               })}
               <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
-                Each payment's % is its share of Budgeted (RM); the phase % is the live total of
-                that phase's payments against Budgeted — neither is fixed to the {f.paymentTerms}
-                label, so both update as amounts are entered.
+                Each payment's % is its live share of Budgeted (RM). The phase heading shows the
+                fixed target from the {f.paymentTerms} terms and won't change — even if what's
+                actually entered ends up different from that split.
                 {termsSplit.length > 1 && " The next phase unlocks once the current one has started."}
               </p>
             </div>
