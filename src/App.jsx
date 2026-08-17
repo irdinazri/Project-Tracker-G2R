@@ -1268,6 +1268,11 @@ export default function App() {
   const [view, setView] = useState("dashboard");
   const [selectedId, setSelectedId] = useState(null);
   const [detailTab, setDetailTab] = useState("overview");
+  // Set when a health pill on the Dashboard is clicked ("3 At risk" etc.) —
+  // filters the Projects view to just that bucket. Cleared whenever the
+  // sidebar nav is used directly (see SidebarContent), so a stale filter
+  // from an earlier click doesn't silently hide projects on a fresh visit.
+  const [healthFilter, setHealthFilter] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
 
   const [deptTemplates, setDeptTemplates] = useState({});
@@ -1466,7 +1471,7 @@ export default function App() {
         className="hidden md:flex flex-col shrink-0"
         style={{ width: 220, background: T.bgElevated, borderRight: `1px solid ${T.border}` }}
       >
-        <SidebarContent view={view} setView={setView} setSelectedId={setSelectedId} />
+        <SidebarContent view={view} setView={setView} setSelectedId={setSelectedId} setHealthFilter={setHealthFilter} />
       </aside>
 
       {navOpen && (
@@ -1482,6 +1487,7 @@ export default function App() {
                 setNavOpen(false);
               }}
               setSelectedId={setSelectedId}
+              setHealthFilter={setHealthFilter}
             />
           </div>
           <div className="flex-1" style={{ background: "rgba(6,8,11,0.6)" }} onClick={() => setNavOpen(false)} />
@@ -1522,6 +1528,11 @@ export default function App() {
                 companyMetrics={companyMetrics}
                 onOpenProject={goToProject}
                 onNewProject={() => setModal({ type: "project" })}
+                onFilterHealth={(health) => {
+                  setHealthFilter(health);
+                  setSelectedId(null);
+                  setView("projects");
+                }}
               />
             )}
 
@@ -1532,6 +1543,8 @@ export default function App() {
                 onNewProject={() => setModal({ type: "project" })}
                 onEditProject={(p) => setModal({ type: "project", data: p })}
                 onDeleteProject={deleteProject}
+                healthFilter={healthFilter}
+                onClearHealthFilter={() => setHealthFilter(null)}
               />
             )}
 
@@ -2351,12 +2364,13 @@ function PrintReport({ project }) {
 }
 
 /* ============================== SIDEBAR ============================== */
-function SidebarContent({ view, setView, setSelectedId }) {
+function SidebarContent({ view, setView, setSelectedId, setHealthFilter }) {
   const { role, subconName, switchRole } = usePermissions();
   const NavItem = ({ id, icon: Icon, label }) => (
     <button
       onClick={() => {
         setSelectedId(null);
+        setHealthFilter(null);
         setView(id);
       }}
       className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors w-full text-left"
@@ -2422,7 +2436,7 @@ function SidebarContent({ view, setView, setSelectedId }) {
 }
 
 /* ============================== DASHBOARD VIEW ============================== */
-function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }) {
+function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, onFilterHealth }) {
   const { canEditProject, canSeeFinancials } = usePermissions();
   const { withM, totalContract, totalActual, totalProfit, totalOpenIssues, active, healthCounts } =
     companyMetrics;
@@ -2487,18 +2501,35 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }
           </div>
 
           <div className="flex flex-wrap gap-3">
-            {["RED", "AMBER", "GREEN"].map((h) => (
-              <div
-                key={h}
-                className="flex items-center gap-2 px-3.5 py-2 rounded-lg"
-                style={{ background: HEALTH_SOFT[h], border: `1px solid ${HEALTH_COLOR[h]}33` }}
-              >
-                <span className="w-2 h-2 rounded-full" style={{ background: HEALTH_COLOR[h] }} />
-                <span className="text-sm font-medium" style={{ color: HEALTH_COLOR[h] }}>
-                  {healthCounts[h]} {HEALTH_LABEL[h]}
-                </span>
-              </div>
-            ))}
+            {["RED", "AMBER", "GREEN"].map((h) => {
+              const count = healthCounts[h];
+              const clickable = count > 0;
+              return (
+                <button
+                  key={h}
+                  type="button"
+                  onClick={clickable ? () => onFilterHealth(h) : undefined}
+                  disabled={!clickable}
+                  title={clickable ? `View the ${count} ${HEALTH_LABEL[h].toLowerCase()} project${count === 1 ? "" : "s"}` : undefined}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-lg transition-colors"
+                  style={{
+                    background: HEALTH_SOFT[h],
+                    border: `1px solid ${HEALTH_COLOR[h]}33`,
+                    cursor: clickable ? "pointer" : "default",
+                    opacity: clickable ? 1 : 0.6,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (clickable) e.currentTarget.style.borderColor = HEALTH_COLOR[h];
+                  }}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = `${HEALTH_COLOR[h]}33`)}
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ background: HEALTH_COLOR[h] }} />
+                  <span className="text-sm font-medium" style={{ color: HEALTH_COLOR[h] }}>
+                    {count} {HEALTH_LABEL[h]}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {canSeeFinancials && (
@@ -2613,8 +2644,11 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject }
 }
 
 /* ============================== PROJECTS VIEW ============================== */
-function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, onDeleteProject }) {
+function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, onDeleteProject, healthFilter, onClearHealthFilter }) {
   const { canEditProject, canSeeFinancials } = usePermissions();
+  const filteredProjects = healthFilter
+    ? projects.filter((p) => calcProjectMetrics(p).health === healthFilter)
+    : projects;
   return (
     <div className="flex flex-col gap-5 max-w-6xl">
       <div className="flex items-center justify-between">
@@ -2623,7 +2657,8 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
             Projects
           </h1>
           <p className="text-sm mt-0.5" style={{ color: T.textDim }}>
-            {projects.length} project{projects.length !== 1 ? "s" : ""} across all departments.
+            {filteredProjects.length} project{filteredProjects.length !== 1 ? "s" : ""}
+            {healthFilter ? ` · ${HEALTH_LABEL[healthFilter].toLowerCase()}` : " across all departments"}.
           </p>
         </div>
         {canEditProject && (
@@ -2633,22 +2668,51 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
         )}
       </div>
 
-      {projects.length === 0 ? (
+      {healthFilter && (
+        <div
+          className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg"
+          style={{ background: HEALTH_SOFT[healthFilter], border: `1px solid ${HEALTH_COLOR[healthFilter]}33` }}
+        >
+          <span className="text-sm font-medium" style={{ color: HEALTH_COLOR[healthFilter] }}>
+            Showing only {HEALTH_LABEL[healthFilter].toLowerCase()} projects
+          </span>
+          <button
+            type="button"
+            onClick={onClearHealthFilter}
+            className="text-sm font-medium underline shrink-0"
+            style={{ color: HEALTH_COLOR[healthFilter] }}
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
+
+      {filteredProjects.length === 0 ? (
         <EmptyState
           icon={FolderKanban}
-          title="No projects yet"
-          body="Create a project to start tracking its budget, schedule and issues."
+          title={healthFilter ? `No ${HEALTH_LABEL[healthFilter].toLowerCase()} projects` : "No projects yet"}
+          body={
+            healthFilter
+              ? "Nothing currently falls in this bucket — project health may have changed since you clicked through."
+              : "Create a project to start tracking its budget, schedule and issues."
+          }
           action={
-            canEditProject && (
-              <Button onClick={onNewProject}>
-                <Plus size={15} /> Add a project
+            healthFilter ? (
+              <Button variant="ghost" onClick={onClearHealthFilter}>
+                Clear filter
               </Button>
+            ) : (
+              canEditProject && (
+                <Button onClick={onNewProject}>
+                  <Plus size={15} /> Add a project
+                </Button>
+              )
             )
           }
         />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {projects.map((p) => {
+          {filteredProjects.map((p) => {
             const m = calcProjectMetrics(p);
             return (
               <div
