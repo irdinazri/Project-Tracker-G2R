@@ -4600,6 +4600,16 @@ function CostModal({ data, onClose, onSave }) {
                 // the looser of two reasonable rules.
                 const prevPhaseStarted =
                   phaseIdx === 0 || (f.payments[phaseIdx - 1] || []).some((v) => (Number(v) || 0) > 0);
+                // Once this phase's payments already add up to (or past)
+                // its target share of Budgeted, there's no reason to offer
+                // another box for it — uses the raw, unrounded percentage
+                // for the comparison so a display-rounding quirk (e.g.
+                // 39.6% rounding to 40% on screen) doesn't trigger this a
+                // step early or late. Skipped entirely while Budgeted is
+                // blank, since "enough" can't be determined without it.
+                const phaseSum = phasePayments.reduce((s, v) => s + (Number(v) || 0), 0);
+                const phaseSumPctRaw = budgetedNum > 0 ? (phaseSum / budgetedNum) * 100 : 0;
+                const phaseTargetReached = budgetedNum > 0 && phaseSumPctRaw >= phaseTargetPct;
 
                 return (
                   <div key={phaseIdx} className="flex flex-col gap-2.5">
@@ -4665,10 +4675,17 @@ function CostModal({ data, onClose, onSave }) {
                       type="button"
                       variant="ghost"
                       onClick={() => addPhasePayment(phaseIdx)}
-                      disabled={fieldsLocked || !prevPhaseStarted}
+                      disabled={fieldsLocked || !prevPhaseStarted || phaseTargetReached}
+                      title={phaseTargetReached ? `This phase already reaches its ${phaseTargetPct}% target` : undefined}
                     >
                       <Plus size={14} /> Add another payment
                     </Button>
+                    {phaseTargetReached && (
+                      <p className="text-xs" style={{ color: T.textFaint }}>
+                        This phase's payments already reach its {phaseTargetPct}% target — no
+                        more needed here.
+                      </p>
+                    )}
                   </div>
                 );
               })}
