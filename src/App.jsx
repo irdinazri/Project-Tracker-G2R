@@ -4549,14 +4549,19 @@ function CostModal({ data, onClose, onSave }) {
           </div>
           {termsSplit && (
             <div className="flex flex-col gap-2.5">
-              <div className="grid grid-cols-2 gap-3.5">
-                {f.payments.map((val, idx) => {
+              {(() => {
+                const totalPayments = f.payments.reduce((s, v) => s + (Number(v) || 0), 0);
+                return f.payments.map((val, idx) => {
                   const isBaseSlot = idx < termsSplit.length;
                   const label = isBaseSlot
                     ? termsSplit.length > 1
-                      ? `${idx === 0 ? "First" : "Second"} payment (${termsSplit[idx]}%)`
-                      : `Payment (${termsSplit[idx]}%)`
+                      ? idx === 0
+                        ? "First payment"
+                        : "Second payment"
+                      : "Payment"
                     : `Additional payment ${idx + 1}`;
+                  const thisAmount = Number(val) || 0;
+                  const pctDisplay = totalPayments > 0 ? `${Math.round((thisAmount / totalPayments) * 100)}%` : "—";
                   return (
                     <div key={idx} className="flex items-end gap-1.5">
                       <div className="flex-1">
@@ -4568,6 +4573,16 @@ function CostModal({ data, onClose, onSave }) {
                             value={val}
                             onChange={(e) => setPaymentAt(idx, e.target.value)}
                             disabled={fieldsLocked}
+                          />
+                        </Field>
+                      </div>
+                      <div style={{ width: 84 }}>
+                        <Field label="%">
+                          <TextInput
+                            type="text"
+                            value={pctDisplay}
+                            disabled
+                            style={{ background: T.bg, color: T.textFaint, textAlign: "center" }}
                           />
                         </Field>
                       </div>
@@ -4583,15 +4598,15 @@ function CostModal({ data, onClose, onSave }) {
                       )}
                     </div>
                   );
-                })}
-              </div>
+                });
+              })()}
               <Button type="button" variant="ghost" onClick={addPaymentBox} disabled={fieldsLocked}>
                 <Plus size={14} /> Add another payment
               </Button>
               <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
-                Use this when a payment actually lands in more than {termsSplit.length} transaction
-                {termsSplit.length === 1 ? "" : "s"} — e.g. the {termsSplit[termsSplit.length - 1]}%
-                portion arrives as two separate transfers.
+                The % column is calculated live from the amounts above, as each payment's share of
+                their combined total — it isn't fixed to the {f.paymentTerms} split, so it updates
+                automatically as you fill in or add payments.
               </p>
             </div>
           )}
