@@ -468,10 +468,17 @@ const fmtDate = (d) =>
 function fmtPaymentTerms(c) {
   const split = c.paymentTerms ? PAYMENT_TERMS_SPLITS[c.paymentTerms] : null;
   if (!split) return null;
-  let amounts = Array.isArray(c.payments) ? c.payments : null;
-  if (!amounts || amounts.length === 0) {
-    // Backward compat with the fixed payment1/payment2 format used before
-    // "+ Add another payment" existed.
+  let amounts;
+  if (Array.isArray(c.payments) && c.payments.length > 0 && Array.isArray(c.payments[0])) {
+    // Current format: payments grouped by phase, e.g. [["10","10"],["20"]].
+    // Flattened for display — the breakdown itself doesn't need the phase
+    // grouping, just the full list of amounts recorded.
+    amounts = c.payments.flat().filter((v) => v !== undefined && v !== "");
+  } else if (Array.isArray(c.payments) && c.payments.length > 0) {
+    // Backward compat: the flat-list format from before phases existed.
+    amounts = c.payments;
+  } else {
+    // Backward compat: the original fixed payment1/payment2 fields.
     amounts = [c.payment1, c.payment2].filter((v) => v !== undefined && v !== "");
   }
   if (amounts.length === 0) return null;
@@ -4377,12 +4384,31 @@ function CostModal({ data, onClose, onSave }) {
       approval: "Pending",
       ...data,
     };
-    // Migrate the earlier payment1/payment2 fields (the previous version of
-    // this form, before "+ Add another payment" existed) into the new
-    // flexible list, so entries already saved that way still edit and
-    // total correctly instead of appearing to have lost their data.
-    if ((!Array.isArray(base.payments) || base.payments.length === 0) && (data?.payment1 || data?.payment2)) {
-      base.payments = [data.payment1, data.payment2].filter((v) => v !== undefined && v !== "");
+    // payments is now grouped by phase — one array per phase (matching the
+    // Terms split), each holding that phase's own list of payment amounts,
+    // e.g. under 40-60: [["10","10"], ["20","10"]]. Older saved shapes get
+    // migrated here, best-effort, so nothing already entered is lost:
+    //   - flat payments[] (previous iteration, no phase grouping at all)
+    //   - payment1/payment2 (the version before that)
+    // Extra entries beyond one-per-phase get bucketed into the LAST phase,
+    // since neither older format recorded which phase they belonged to.
+    const split = base.paymentTerms ? PAYMENT_TERMS_SPLITS[base.paymentTerms] : null;
+    const isNested = Array.isArray(base.payments) && base.payments.length > 0 && Array.isArray(base.payments[0]);
+    if (split && !isNested) {
+      const flatAmounts =
+        Array.isArray(base.payments) && base.payments.length > 0
+          ? base.payments
+          : [data?.payment1, data?.payment2].filter((v) => v !== undefined && v !== "");
+      const phases = split.map(() => []);
+      flatAmounts.forEach((amt, i) => {
+        phases[Math.min(i, phases.length - 1)].push(amt);
+      });
+      phases.forEach((phase) => {
+        if (phase.length === 0) phase.push("");
+      });
+      base.payments = phases;
+    } else if (!split) {
+      base.payments = [];
     }
     return base;
   });
@@ -4409,23 +4435,38 @@ function CostModal({ data, onClose, onSave }) {
     role !== ROLES.ADMIN && canSetCostApproval && wasAlreadyDecided && f.approval !== "Pending";
   const fieldsLocked = locked || financeFieldsLocked;
 
-  // Once a Terms structure is picked, Actual becomes the sum of every
-  // payment box below rather than something typed independently — one
-  // number to keep in sync instead of two (or more) that could quietly
-  // disagree. Entries that predate this feature (or where Terms is left
-  // blank) keep the old plain-typed-number behaviour untouched.
   const termsSplit = f.paymentTerms ? PAYMENT_TERMS_SPLITS[f.paymentTerms] : null;
+  const budgetedNum = Number(f.budgeted) || 0;
+  // Actual is the sum of every payment across every phase — one number to
+  // keep in sync instead of several that could quietly disagree. Entries
+  // that predate this feature (or where Terms is left blank) keep the old
+  // plain-typed-number behaviour untouched.
   const computedActual = termsSplit
-    ? f.payments.reduce((s, v) => s + (Number(v) || 0), 0)
+    ? f.payments.flat().reduce((s, v) => s + (Number(v) || 0), 0)
     : null;
 
-  const setPaymentAt = (idx, value) => {
-    const next = [...f.payments];
-    next[idx] = value;
-    setF({ ...f, payments: next });
+  const setPhasePaymentAt = (phaseIdx, payIdx, value) => {
+    setF({
+      ...f,
+      payments: f.payments.map((phase, pIdx) =>
+        pIdx === phaseIdx ? phase.map((v, i) => (i === payIdx ? value : v)) : phase
+      ),
+    });
   };
-  const addPaymentBox = () => setF({ ...f, payments: [...f.payments, ""] });
-  const removePaymentAt = (idx) => setF({ ...f, payments: f.payments.filter((_, i) => i !== idx) });
+  const addPhasePayment = (phaseIdx) => {
+    setF({
+      ...f,
+      payments: f.payments.map((phase, pIdx) => (pIdx === phaseIdx ? [...phase, ""] : phase)),
+    });
+  };
+  const removePhasePaymentAt = (phaseIdx, payIdx) => {
+    setF({
+      ...f,
+      payments: f.payments.map((phase, pIdx) =>
+        pIdx === phaseIdx ? phase.filter((_, i) => i !== payIdx) : phase
+      ),
+    });
+  };
 
   const handleSubmit = () => {
     if (locked) return;
@@ -4433,9 +4474,10 @@ function CostModal({ data, onClose, onSave }) {
       ...f,
       budgeted: Number(f.budgeted) || 0,
       actual: termsSplit ? computedActual : Number(f.actual) || 0,
-      payments: termsSplit ? f.payments.map((v) => Number(v) || 0) : f.payments,
-      // Old fields dropped from new saves now that payments[] carries this —
-      // kept out entirely rather than left stale alongside the real data.
+      payments: termsSplit ? f.payments.map((phase) => phase.map((v) => Number(v) || 0)) : f.payments,
+      // Old fields dropped from new saves now that payments[][] carries
+      // this — kept out entirely rather than left stale alongside the
+      // real data.
       payment1: undefined,
       payment2: undefined,
     });
@@ -4527,15 +4569,15 @@ function CostModal({ data, onClose, onSave }) {
                 required
                 value={f.paymentTerms || ""}
                 onChange={(e) => {
-                  // Switching terms resets the payment list to match the
-                  // new split — including clearing any extra boxes added
-                  // via "+" — rather than leaving amounts sitting under
-                  // percentage labels (or a count) that no longer apply.
+                  // Switching terms rebuilds the phase structure from
+                  // scratch — one fresh empty payment slot per phase —
+                  // rather than trying to carry old amounts into a
+                  // different phase count/shape they no longer match.
                   const newSplit = e.target.value ? PAYMENT_TERMS_SPLITS[e.target.value] : null;
                   setF({
                     ...f,
                     paymentTerms: e.target.value,
-                    payments: newSplit ? Array(newSplit.length).fill("") : [],
+                    payments: newSplit ? newSplit.map(() => [""]) : [],
                   });
                 }}
                 disabled={fieldsLocked}
@@ -4548,77 +4590,96 @@ function CostModal({ data, onClose, onSave }) {
             </Field>
           </div>
           {termsSplit && (
-            <div className="flex flex-col gap-2.5">
-              {(() => {
-                const budgetedNum = Number(f.budgeted) || 0;
-                return f.payments.map((val, idx) => {
-                  const isBaseSlot = idx < termsSplit.length;
-                  const label = isBaseSlot
-                    ? termsSplit.length > 1
-                      ? idx === 0
-                        ? "First payment"
-                        : "Second payment"
-                      : "Payment"
-                    : `Additional payment ${idx + 1}`;
-                  // Each box unlocks only once the one before it has an
-                  // actual recorded amount — payments happen one at a time
-                  // in a staged terms schedule, so the form shouldn't let
-                  // someone fill in the second before the first exists.
-                  const isUnlocked = idx === 0 || (Number(f.payments[idx - 1]) || 0) > 0;
-                  const isDisabled = fieldsLocked || !isUnlocked;
-                  const pctDisplay =
-                    val === "" || val === undefined || val === null
-                      ? "—"
-                      : budgetedNum > 0
-                      ? `${Math.round((Number(val) / budgetedNum) * 100)}%`
-                      : "—";
-                  return (
-                    <div key={idx} className="flex items-end gap-1.5">
-                      <div className="flex-1">
-                        <Field label={label}>
-                          <TextInput
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={val}
-                            onChange={(e) => setPaymentAt(idx, e.target.value)}
-                            disabled={isDisabled}
-                            placeholder={!isUnlocked ? "Enter the previous payment first" : undefined}
-                          />
-                        </Field>
+            <div className="flex flex-col gap-4">
+              {termsSplit.map((_, phaseIdx) => {
+                const phasePayments = f.payments[phaseIdx] || [""];
+                const phaseLabel = termsSplit.length > 1 ? (phaseIdx === 0 ? "First phase" : "Second phase") : null;
+                const phaseSum = phasePayments.reduce((s, v) => s + (Number(v) || 0), 0);
+                const phaseLivePct = budgetedNum > 0 ? Math.round((phaseSum / budgetedNum) * 100) : null;
+                // The next phase only opens once THIS phase has actually
+                // started (its first payment has a real amount) — not once
+                // it's fully paid out. See the note in chat on why this is
+                // the looser of two reasonable rules.
+                const prevPhaseStarted =
+                  phaseIdx === 0 || (f.payments[phaseIdx - 1] || []).some((v) => (Number(v) || 0) > 0);
+
+                return (
+                  <div key={phaseIdx} className="flex flex-col gap-2.5">
+                    {phaseLabel && (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-px" style={{ background: T.border }} />
+                        <span className="text-xs font-semibold uppercase tracking-wide shrink-0" style={{ color: T.textFaint }}>
+                          {phaseLabel}
+                          {phaseLivePct != null ? ` (${phaseLivePct}%)` : ""}
+                        </span>
+                        <div className="flex-1 h-px" style={{ background: T.border }} />
                       </div>
-                      <div style={{ width: 84 }}>
-                        <Field label="%">
-                          <TextInput
-                            type="text"
-                            value={pctDisplay}
-                            disabled
-                            style={{ background: T.bg, color: T.textFaint, textAlign: "center" }}
-                          />
-                        </Field>
-                      </div>
-                      {!isBaseSlot && (
-                        <IconBtn
-                          title="Remove this payment"
-                          danger
-                          disabled={fieldsLocked}
-                          onClick={() => removePaymentAt(idx)}
-                        >
-                          <Trash2 size={15} />
-                        </IconBtn>
-                      )}
-                    </div>
-                  );
-                });
-              })()}
-              <Button type="button" variant="ghost" onClick={addPaymentBox} disabled={fieldsLocked}>
-                <Plus size={14} /> Add another payment
-              </Button>
+                    )}
+                    {phasePayments.map((val, payIdx) => {
+                      const withinPhaseUnlocked =
+                        payIdx === 0 ? prevPhaseStarted : (Number(phasePayments[payIdx - 1]) || 0) > 0;
+                      const isDisabled = fieldsLocked || !withinPhaseUnlocked;
+                      const label = payIdx === 0 ? "First payment" : payIdx === 1 ? "Second payment" : `Payment ${payIdx + 1}`;
+                      const pctDisplay =
+                        val === "" || val === undefined || val === null
+                          ? "—"
+                          : budgetedNum > 0
+                          ? `${Math.round((Number(val) / budgetedNum) * 100)}%`
+                          : "—";
+                      return (
+                        <div key={payIdx} className="flex items-end gap-1.5">
+                          <div className="flex-1">
+                            <Field label={label}>
+                              <TextInput
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={val}
+                                onChange={(e) => setPhasePaymentAt(phaseIdx, payIdx, e.target.value)}
+                                disabled={isDisabled}
+                                placeholder={!withinPhaseUnlocked ? "Enter the previous payment first" : undefined}
+                              />
+                            </Field>
+                          </div>
+                          <div style={{ width: 84 }}>
+                            <Field label="%">
+                              <TextInput
+                                type="text"
+                                value={pctDisplay}
+                                disabled
+                                style={{ background: T.bg, color: T.textFaint, textAlign: "center" }}
+                              />
+                            </Field>
+                          </div>
+                          {payIdx > 0 && (
+                            <IconBtn
+                              title="Remove this payment"
+                              danger
+                              disabled={fieldsLocked}
+                              onClick={() => removePhasePaymentAt(phaseIdx, payIdx)}
+                            >
+                              <Trash2 size={15} />
+                            </IconBtn>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => addPhasePayment(phaseIdx)}
+                      disabled={fieldsLocked || !prevPhaseStarted}
+                    >
+                      <Plus size={14} /> Add another payment
+                    </Button>
+                  </div>
+                );
+              })}
               <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
-                The % column shows each payment as a share of Budgeted (RM) above — not of the
-                other payments — so it reflects how much of the agreed cost that transaction
-                covers. Each payment unlocks only after the one before it is recorded, since these
-                land one at a time in practice.
+                Each payment's % is its share of Budgeted (RM); the phase % is the live total of
+                that phase's payments against Budgeted — neither is fixed to the {f.paymentTerms}
+                label, so both update as amounts are entered.
+                {termsSplit.length > 1 && " The next phase unlocks once the current one has started."}
               </p>
             </div>
           )}
@@ -4632,7 +4693,7 @@ function CostModal({ data, onClose, onSave }) {
                   style={{ background: T.bg, color: T.textFaint }}
                 />
                 <p className="text-xs mt-1" style={{ color: T.textFaint }}>
-                  Auto-calculated as the sum of the payment{f.payments.length > 1 ? "s" : ""} above.
+                  Auto-calculated as the sum of every payment above.
                 </p>
               </>
             ) : (
@@ -4662,7 +4723,7 @@ function CostModal({ data, onClose, onSave }) {
       )}
       {f.approval === "Pending" && (
         <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
-          Actual cost, payment method, payment terms and reason appear once this entry is
+          Actual cost, payment method, payment terms and comment(s) appear once this entry is
           Approved. A rejection reason is requested once it's Rejected.
         </p>
       )}
