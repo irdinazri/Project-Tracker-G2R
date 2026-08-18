@@ -4434,6 +4434,14 @@ function CostModal({ data, onClose, onSave }) {
   const financeFieldsLocked =
     role !== ROLES.ADMIN && canSetCostApproval && wasAlreadyDecided && f.approval !== "Pending";
   const fieldsLocked = locked || financeFieldsLocked;
+  // Payment amount boxes get a narrower lock than the rest of the form.
+  // Finance needs to keep logging instalments over separate days as money
+  // actually arrives — that's routine bookkeeping, not a revision to the
+  // approval decision, so it shouldn't require flipping back to Pending
+  // every time. Only Coordinator's hard lock still applies here; the rest
+  // of the form (Category, Description, Payment method, Payment terms,
+  // Comment(s)) stays behind the normal fieldsLocked rule.
+  const paymentAmountsLocked = locked;
 
   const termsSplit = f.paymentTerms ? PAYMENT_TERMS_SPLITS[f.paymentTerms] : null;
   const budgetedNum = Number(f.budgeted) || 0;
@@ -4506,8 +4514,10 @@ function CostModal({ data, onClose, onSave }) {
           style={{ background: T.amberSoft, color: T.amber }}
         >
           <AlertTriangle size={14} />
-          You already recorded a decision on this entry — fields are locked. To correct
-          something, set Approval status back to Pending below, then edit and save.
+          Category, Budgeted, Payment method and Payment terms are locked once a decision is
+          recorded — set Approval status back to Pending to change those. Payment amounts and
+          Comment(s) stay open below, since staged payments are usually recorded over several
+          visits.
         </div>
       )}
       <div className="grid grid-cols-2 gap-3.5">
@@ -4625,7 +4635,7 @@ function CostModal({ data, onClose, onSave }) {
                     {phasePayments.map((val, payIdx) => {
                       const withinPhaseUnlocked =
                         payIdx === 0 ? prevPhaseStarted : (Number(phasePayments[payIdx - 1]) || 0) > 0;
-                      const isDisabled = fieldsLocked || !withinPhaseUnlocked;
+                      const isDisabled = paymentAmountsLocked || !withinPhaseUnlocked;
                       const label = payIdx === 0 ? "First payment" : payIdx === 1 ? "Second payment" : `Payment ${payIdx + 1}`;
                       const pctDisplay =
                         val === "" || val === undefined || val === null
@@ -4662,7 +4672,7 @@ function CostModal({ data, onClose, onSave }) {
                             <IconBtn
                               title="Remove this payment"
                               danger
-                              disabled={fieldsLocked}
+                              disabled={paymentAmountsLocked}
                               onClick={() => removePhasePaymentAt(phaseIdx, payIdx)}
                             >
                               <Trash2 size={15} />
@@ -4675,7 +4685,7 @@ function CostModal({ data, onClose, onSave }) {
                       type="button"
                       variant="ghost"
                       onClick={() => addPhasePayment(phaseIdx)}
-                      disabled={fieldsLocked || !prevPhaseStarted || phaseTargetReached}
+                      disabled={paymentAmountsLocked || !prevPhaseStarted || phaseTargetReached}
                       title={phaseTargetReached ? `This phase already reaches its ${phaseTargetPct}% target` : undefined}
                     >
                       <Plus size={14} /> Add another payment
@@ -4719,7 +4729,7 @@ function CostModal({ data, onClose, onSave }) {
               value={f.reason}
               onChange={set("reason")}
               placeholder="Any context worth recording — e.g. partial payment, delay, discount, etc."
-              disabled={fieldsLocked}
+              disabled={locked}
             />
           </Field>
         </>
