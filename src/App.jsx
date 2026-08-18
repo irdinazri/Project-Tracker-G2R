@@ -465,24 +465,38 @@ const fmtDate = (d) =>
 // or "100 · RM25,000.00". Returns null if no terms structure is set (older
 // entries, or ones that never used the terms breakdown), so callers can
 // decide whether to render a sub-line at all.
-function fmtPaymentTerms(c) {
+// Returns a per-phase breakdown for display, e.g. under 40-60 terms:
+// [{ label: "First phase", targetPct: 40, amounts: [10, 10] },
+//  { label: "Second phase", targetPct: 60, amounts: [] }]
+// amounts only ever contains REAL entered payments (>0) — an empty or
+// unfilled box doesn't show up as a misleading "RM0.00" line, it shows up
+// as an empty amounts list, which the caller renders as "not yet paid".
+// Returns null if there's no terms/payments data to show at all. Handles
+// all three historical shapes this feature has gone through — current
+// phase-nested payments[][], the flat payments[] from before phases
+// existed, and the original fixed payment1/payment2 fields.
+function getPaymentPhaseBreakdown(c) {
   const split = c.paymentTerms ? PAYMENT_TERMS_SPLITS[c.paymentTerms] : null;
   if (!split) return null;
-  let amounts;
+
+  let phases;
   if (Array.isArray(c.payments) && c.payments.length > 0 && Array.isArray(c.payments[0])) {
-    // Current format: payments grouped by phase, e.g. [["10","10"],["20"]].
-    // Flattened for display — the breakdown itself doesn't need the phase
-    // grouping, just the full list of amounts recorded.
-    amounts = c.payments.flat().filter((v) => v !== undefined && v !== "");
+    phases = c.payments;
   } else if (Array.isArray(c.payments) && c.payments.length > 0) {
-    // Backward compat: the flat-list format from before phases existed.
-    amounts = c.payments;
+    phases = split.map(() => []);
+    c.payments.forEach((amt, i) => phases[Math.min(i, phases.length - 1)].push(amt));
+  } else if (c.payment1 !== undefined || c.payment2 !== undefined) {
+    phases = split.length > 1 ? [[c.payment1], [c.payment2]] : [[c.payment1]];
   } else {
-    // Backward compat: the original fixed payment1/payment2 fields.
-    amounts = [c.payment1, c.payment2].filter((v) => v !== undefined && v !== "");
+    phases = [];
   }
-  if (amounts.length === 0) return null;
-  return `${c.paymentTerms} · ${amounts.map((a) => fmtRM(a)).join(" + ")}`;
+  if (phases.length === 0) return null;
+
+  return split.map((targetPct, idx) => ({
+    label: split.length > 1 ? (idx === 0 ? "First phase" : "Second phase") : null,
+    targetPct,
+    amounts: (phases[idx] || []).filter((v) => v !== undefined && v !== "" && Number(v) > 0),
+  }));
 }
 
 // Once Finance records a decision (Approved/Rejected), the entry locks:
@@ -2301,8 +2315,16 @@ function PrintReport({ project }) {
                   <td style={td}>{isApproved ? fmtRM(c.actual) : "—"}</td>
                   <td style={td}>
                     {isApproved ? (c.paymentMethod || "—") : "—"}
-                    {isApproved && fmtPaymentTerms(c) && (
-                      <div style={{ fontSize: 10.5, color: PR.dim, marginTop: 2 }}>{fmtPaymentTerms(c)}</div>
+                    {isApproved && getPaymentPhaseBreakdown(c) && (
+                      <div style={{ fontSize: 10.5, color: PR.dim, marginTop: 2 }}>
+                        <div>{c.paymentTerms}</div>
+                        {getPaymentPhaseBreakdown(c).map((phase, i) => (
+                          <div key={i}>
+                            {phase.label ? `${phase.label} (${phase.targetPct}%): ` : ""}
+                            {phase.amounts.length > 0 ? phase.amounts.map((a) => fmtRM(a)).join(" + ") : "not yet paid"}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </td>
                   <td style={td}>{c.approval}</td>
@@ -3475,9 +3497,15 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                         <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRM(c.actual) : "—"}</td>
                         <td className="px-4 py-2.5" style={{ color: T.textDim }}>
                           {isApproved ? (c.paymentMethod || "—") : "—"}
-                          {isApproved && fmtPaymentTerms(c) && (
-                            <div className="text-xs mt-1" style={{ color: T.textFaint }}>
-                              {fmtPaymentTerms(c)}
+                          {isApproved && getPaymentPhaseBreakdown(c) && (
+                            <div className="text-xs mt-1 flex flex-col gap-0.5" style={{ color: T.textFaint }}>
+                              <span>{c.paymentTerms}</span>
+                              {getPaymentPhaseBreakdown(c).map((phase, i) => (
+                                <span key={i}>
+                                  {phase.label ? `${phase.label} (${phase.targetPct}%): ` : ""}
+                                  {phase.amounts.length > 0 ? phase.amounts.map((a) => fmtRM(a)).join(" + ") : "not yet paid"}
+                                </span>
+                              ))}
                             </div>
                           )}
                         </td>
@@ -3548,10 +3576,19 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                         <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRM(c.actual) : "—"}</div>
                       </div>
                     </div>
-                    {isApproved && (c.paymentMethod || fmtPaymentTerms(c)) && (
-                      <div className="text-xs" style={{ color: T.textFaint }}>
-                        {c.paymentMethod || "—"}
-                        {fmtPaymentTerms(c) ? ` · ${fmtPaymentTerms(c)}` : ""}
+                    {isApproved && (c.paymentMethod || getPaymentPhaseBreakdown(c)) && (
+                      <div className="text-xs flex flex-col gap-0.5" style={{ color: T.textFaint }}>
+                        <span>
+                          {c.paymentMethod || "—"}
+                          {getPaymentPhaseBreakdown(c) ? ` · ${c.paymentTerms}` : ""}
+                        </span>
+                        {getPaymentPhaseBreakdown(c) &&
+                          getPaymentPhaseBreakdown(c).map((phase, i) => (
+                            <span key={i}>
+                              {phase.label ? `${phase.label} (${phase.targetPct}%): ` : ""}
+                              {phase.amounts.length > 0 ? phase.amounts.map((a) => fmtRM(a)).join(" + ") : "not yet paid"}
+                            </span>
+                          ))}
                       </div>
                     )}
                     {isApproved && c.reason && (
