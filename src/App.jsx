@@ -18,6 +18,8 @@ import {
   ListChecks,
   Wand2,
   Moon,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import {
   BarChart,
@@ -1598,6 +1600,7 @@ export default function App() {
                 onManageTemplates={() => setModal({ type: "taskTemplates" })}
                 onBulkGenerate={() => setModal({ type: "bulkGenerate" })}
                 hasDeptTemplates={(deptTemplates[selected.department] || []).length > 0}
+                onToggleScheduleLock={() => updateProject(selected.id, { scheduleLocked: !selected.scheduleLocked })}
                 onAddCost={() => setModal({ type: "cost" })}
                 onEditCost={(c) => setModal({ type: "cost", data: c })}
                 onDeleteCost={(id) => mutateList("costs", (l) => l.filter((x) => x.id !== id))}
@@ -2839,6 +2842,7 @@ function ProjectDetailView({
   onManageTemplates,
   onBulkGenerate,
   hasDeptTemplates,
+  onToggleScheduleLock,
   onAddCost,
   onEditCost,
   onDeleteCost,
@@ -2914,7 +2918,7 @@ function ProjectDetailView({
 
       {effectiveTab === "overview" && <OverviewTab project={project} m={m} />}
       {effectiveTab === "gantt" && (
-        <GanttTab project={project} onAddTask={onAddTask} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onQuickUpdateTask={onQuickUpdateTask} onManageTemplates={onManageTemplates} onBulkGenerate={onBulkGenerate} hasDeptTemplates={hasDeptTemplates} />
+        <GanttTab project={project} onAddTask={onAddTask} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onQuickUpdateTask={onQuickUpdateTask} onManageTemplates={onManageTemplates} onBulkGenerate={onBulkGenerate} hasDeptTemplates={hasDeptTemplates} onToggleScheduleLock={onToggleScheduleLock} />
       )}
       {effectiveTab === "costs" && showCostsTab && (
         <CostsTab project={project} m={m} onAddCost={onAddCost} onEditCost={onEditCost} onDeleteCost={onDeleteCost} />
@@ -2983,8 +2987,16 @@ function OverviewTab({ project, m }) {
   );
 }
 
-function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateTask, onManageTemplates, onBulkGenerate, hasDeptTemplates }) {
-  const { canEditTasks } = usePermissions();
+function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateTask, onManageTemplates, onBulkGenerate, hasDeptTemplates, onToggleScheduleLock }) {
+  const { canEditTasks, role } = usePermissions();
+  // Manual, whole-schedule freeze — independent of any individual task's
+  // status. Admin always bypasses it, same as every other lock in this
+  // app. canEditNow is the derived "can actually edit right now" flag used
+  // everywhere below instead of the raw role permission, so a locked
+  // schedule reads as read-only even for a Coordinator who could normally
+  // edit it.
+  const scheduleLocked = !!project.scheduleLocked && role !== ROLES.ADMIN;
+  const canEditNow = canEditTasks && !scheduleLocked;
   const tasks = project.tasks || [];
   const issues = project.issues || [];
   const siteNames = project.siteNames || [];
@@ -3056,7 +3068,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           <TextInput
             type="date"
             value={t.start}
-            disabled={!canEditTasks}
+            disabled={!canEditNow}
             onChange={(e) => onQuickUpdateTask(t.id, { start: e.target.value })}
             style={{ ...compactInput, minWidth: 132 }}
           />
@@ -3065,7 +3077,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           <TextInput
             type="date"
             value={t.end}
-            disabled={!canEditTasks}
+            disabled={!canEditNow}
             onChange={(e) => onQuickUpdateTask(t.id, { end: e.target.value })}
             style={{ ...compactInput, minWidth: 132 }}
           />
@@ -3074,7 +3086,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           <div className="flex items-center gap-1.5 flex-wrap">
             <Select
               value={t.status}
-              disabled={!canEditTasks}
+              disabled={!canEditNow}
               onChange={(e) => onQuickUpdateTask(t.id, statusChangePatch(t, e.target.value))}
               style={{ ...compactInput, minWidth: 118 }}
             >
@@ -3112,13 +3124,13 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             min="0"
             max="100"
             value={progressLocked ? (t.status === "Completed" ? 100 : 0) : (t.progress || 0)}
-            disabled={progressLocked || !canEditTasks}
+            disabled={progressLocked || !canEditNow}
             onChange={(e) => onQuickUpdateTask(t.id, { progress: clamp(Number(e.target.value) || 0, 0, 100) })}
             style={{ ...compactInput, width: 72, ...(progressLocked ? { background: T.bg, color: T.textFaint } : {}) }}
           />
         </td>
         <td className="px-4 py-3.5">
-          {canEditTasks && (
+          {canEditNow && (
             <div className="flex gap-1.5 justify-end">
               <IconBtn title="Full edit (name, owner, site)" onClick={() => onEditTask(t)}>
                 <Pencil size={17} />
@@ -3169,7 +3181,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
               {t.owner || ""}
             </div>
           </div>
-          {canEditTasks && (
+          {canEditNow && (
             <div className="flex gap-1 shrink-0">
               <IconBtn title="Full edit (name, owner, site)" onClick={() => onEditTask(t)}>
                 <Pencil size={16} />
@@ -3207,7 +3219,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             <TextInput
               type="date"
               value={t.start}
-              disabled={!canEditTasks}
+              disabled={!canEditNow}
               onChange={(e) => onQuickUpdateTask(t.id, { start: e.target.value })}
             />
           </Field>
@@ -3215,14 +3227,14 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             <TextInput
               type="date"
               value={t.end}
-              disabled={!canEditTasks}
+              disabled={!canEditNow}
               onChange={(e) => onQuickUpdateTask(t.id, { end: e.target.value })}
             />
           </Field>
           <Field label="Status">
             <Select
               value={t.status}
-              disabled={!canEditTasks}
+              disabled={!canEditNow}
               onChange={(e) => onQuickUpdateTask(t.id, statusChangePatch(t, e.target.value))}
             >
               {TASK_STATUSES.map((s) => <option key={s}>{s}</option>)}
@@ -3234,7 +3246,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
               min="0"
               max="100"
               value={progressLocked ? (t.status === "Completed" ? 100 : 0) : (t.progress || 0)}
-              disabled={progressLocked || !canEditTasks}
+              disabled={progressLocked || !canEditNow}
               onChange={(e) => onQuickUpdateTask(t.id, { progress: clamp(Number(e.target.value) || 0, 0, 100) })}
               style={progressLocked ? { background: T.bg, color: T.textFaint } : undefined}
             />
@@ -3246,15 +3258,49 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
 
   return (
     <div className="flex flex-col gap-4">
+      {project.scheduleLocked && (
+        <div
+          className="flex items-center gap-2 px-3.5 py-2.5 rounded-lg"
+          style={{ background: T.amberSoft, border: `1px solid ${T.amber}33` }}
+        >
+          <AlertTriangle size={15} style={{ color: T.amber }} />
+          <span className="text-sm font-medium" style={{ color: T.amber }}>
+            Schedule locked — no further edits until it's unlocked.
+            {role === ROLES.ADMIN ? " (Admin can still edit despite the lock.)" : ""}
+          </span>
+        </div>
+      )}
       {canEditTasks && (
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 flex-wrap">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (project.scheduleLocked) {
+                if (confirm("Unlock this schedule? Tasks can be edited again once unlocked.")) {
+                  onToggleScheduleLock();
+                }
+              } else {
+                onToggleScheduleLock();
+              }
+            }}
+          >
+            {project.scheduleLocked ? (
+              <>
+                <Unlock size={15} /> Unlock schedule
+              </>
+            ) : (
+              <>
+                <Lock size={15} /> Lock schedule
+              </>
+            )}
+          </Button>
           <Button variant="ghost" onClick={onManageTemplates}>
             <ListChecks size={15} /> Task templates{project.department ? ` (${project.department})` : ""}
           </Button>
-          <Button variant="ghost" onClick={onBulkGenerate}>
+          <Button variant="ghost" onClick={onBulkGenerate} disabled={scheduleLocked}>
             <Wand2 size={15} /> Generate for sites
           </Button>
-          <Button onClick={() => onAddTask()}>
+          <Button onClick={() => onAddTask()} disabled={scheduleLocked}>
             <Plus size={15} /> Add task
           </Button>
         </div>
@@ -3262,7 +3308,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
       {tasks.length === 0 ? (
         (() => {
           const siteCount = (project.siteNames || []).length;
-          if (!canEditTasks) {
+          if (!canEditNow) {
             return (
               <EmptyState
                 icon={FolderKanban}
@@ -3319,7 +3365,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
         })()
       ) : (
         <>
-          <GanttChart tasks={tasks} projectStart={project.startDate} projectEnd={project.endDate} onEditTask={canEditTasks ? onEditTask : undefined} issues={issues} worksWeekends={!!project.worksWeekends} />
+          <GanttChart tasks={tasks} projectStart={project.startDate} projectEnd={project.endDate} onEditTask={canEditNow ? onEditTask : undefined} issues={issues} worksWeekends={!!project.worksWeekends} />
 
           {/* Desktop: table, scrollable so narrow windows can't clip it either */}
           <div className="hidden sm:block rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
@@ -3358,7 +3404,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
                                       {g.tasks.length} task{g.tasks.length === 1 ? "" : "s"}
                                     </span>
                                   </button>
-                                  {canEditTasks && (
+                                  {canEditNow && (
                                     <button
                                       type="button"
                                       onClick={() => onAddTask(g.site)}
@@ -3400,7 +3446,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
                             {g.tasks.length} task{g.tasks.length === 1 ? "" : "s"}
                           </span>
                         </button>
-                        {canEditTasks && (
+                        {canEditNow && (
                           <button
                             type="button"
                             onClick={() => onAddTask(g.site)}
