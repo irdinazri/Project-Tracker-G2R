@@ -3266,34 +3266,43 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           <AlertTriangle size={15} style={{ color: T.amber }} />
           <span className="text-sm font-medium" style={{ color: T.amber }}>
             Schedule locked — no further edits until it's unlocked.
-            {role === ROLES.ADMIN ? " (Admin can still edit despite the lock.)" : ""}
+            {role === ROLES.ADMIN
+              ? " You can unlock it below."
+              : " If there are any changes needed, please contact an admin."}
           </span>
         </div>
       )}
       {canEditTasks && (
         <div className="flex justify-end gap-2 flex-wrap">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (project.scheduleLocked) {
-                if (confirm("Unlock this schedule? Tasks can be edited again once unlocked.")) {
+          {/* Locking is available to anyone who can edit the schedule —
+              it's part of finishing the work. Unlocking is not: once
+              locked, only Admin sees this button at all. Coordinator gets
+              no button to click here, just the banner above telling them
+              who to contact — there's nothing for them to press. */}
+          {(!project.scheduleLocked || role === ROLES.ADMIN) && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (project.scheduleLocked) {
+                  if (confirm("Unlock this schedule? Tasks can be edited again once unlocked.")) {
+                    onToggleScheduleLock();
+                  }
+                } else {
                   onToggleScheduleLock();
                 }
-              } else {
-                onToggleScheduleLock();
-              }
-            }}
-          >
-            {project.scheduleLocked ? (
-              <>
-                <Unlock size={15} /> Unlock schedule
-              </>
-            ) : (
-              <>
-                <Lock size={15} /> Lock schedule
-              </>
-            )}
-          </Button>
+              }}
+            >
+              {project.scheduleLocked ? (
+                <>
+                  <Unlock size={15} /> Unlock schedule
+                </>
+              ) : (
+                <>
+                  <Lock size={15} /> Lock schedule
+                </>
+              )}
+            </Button>
+          )}
           <Button variant="ghost" onClick={onManageTemplates}>
             <ListChecks size={15} /> Task templates{project.department ? ` (${project.department})` : ""}
           </Button>
