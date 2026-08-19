@@ -73,10 +73,11 @@ const PAYMENT_METHODS = ["Online Transfer", "Cheque", "Cash"];
 // moves; Terms is WHAT schedule/split it follows). Splits drive both the
 // label percentages and how many payment amount boxes the form shows —
 // "100" is a single lump-sum box, the other two are two-stage.
-const PAYMENT_TERMS_OPTIONS = ["40-60", "50-50", "100"];
+const PAYMENT_TERMS_OPTIONS = ["40-60", "50-50", "20-80", "100"];
 const PAYMENT_TERMS_SPLITS = {
   "40-60": [40, 60],
   "50-50": [50, 50],
+  "20-80": [20, 80],
   "100": [100],
 };
 const ISSUE_SEVERITIES = ["Low", "Medium", "High", "Critical"];
@@ -455,6 +456,11 @@ function getEffectiveSeverity(issue) {
 
 const fmtRM = (n) =>
   "RM " + (Number(n) || 0).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Same formatting, no "RM " prefix — for table cells where the column
+// header already carries the currency (e.g. "AMOUNT (RM)"), so it isn't
+// repeated on every row. fmtRM stays as-is everywhere else (KPI cards,
+// summaries) where there's no shared header to rely on.
+const fmtRMValue = (n) => (Number(n) || 0).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPct = (n) => `${Math.round((Number(n) || 0) * 100)}%`;
 const fmtDate = (d) =>
   d
@@ -2212,16 +2218,16 @@ function PrintReport({ project }) {
             <thead>
               <tr>
                 <th style={th}>Category</th>
-                <th style={th}>Budgeted</th>
-                <th style={th}>Actual</th>
+                <th style={th}>Amount (RM)</th>
+                <th style={th}>Actual (RM)</th>
               </tr>
             </thead>
             <tbody>
               {byCategory.map((r) => (
                 <tr key={r.cat}>
                   <td style={td}>{r.cat}</td>
-                  <td style={td}>{fmtRM(r.budgeted)}</td>
-                  <td style={td}>{fmtRM(r.actual)}</td>
+                  <td style={td}>{fmtRMValue(r.budgeted)}</td>
+                  <td style={td}>{fmtRMValue(r.actual)}</td>
                 </tr>
               ))}
             </tbody>
@@ -2285,8 +2291,8 @@ function PrintReport({ project }) {
                 <th style={th}>Category</th>
                 <th style={th}>Description</th>
                 <th style={th}>Supplier</th>
-                <th style={th}>Budgeted</th>
-                <th style={th}>Actual</th>
+                <th style={th}>Amount (RM)</th>
+                <th style={th}>Actual (RM)</th>
                 <th style={th}>Payment</th>
                 <th style={th}>Approval</th>
               </tr>
@@ -2311,8 +2317,8 @@ function PrintReport({ project }) {
                     )}
                   </td>
                   <td style={td}>{c.supplier || "—"}</td>
-                  <td style={td}>{fmtRM(c.budgeted)}</td>
-                  <td style={td}>{isApproved ? fmtRM(c.actual) : "—"}</td>
+                  <td style={td}>{fmtRMValue(c.budgeted)}</td>
+                  <td style={td}>{isApproved ? fmtRMValue(c.actual) : "—"}</td>
                   <td style={td}>
                     {isApproved ? (c.paymentMethod || "—") : "—"}
                     {isApproved && getPaymentPhaseBreakdown(c) && (
@@ -3463,7 +3469,7 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                 <table className="w-full text-sm">
                   <thead>
                     <tr style={{ background: T.bgElevated, color: T.textDim }}>
-                      {["Category", "Description", "Supplier", "Budgeted", "Actual", "Payment", "Approval", ""].map((h) => (
+                      {["Category", "Description", "Supplier", "Amount (RM)", "Actual (RM)", "Payment", "Approval", ""].map((h) => (
                         <th key={h} className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wide">
                           {h}
                         </th>
@@ -3493,8 +3499,8 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                           )}
                         </td>
                         <td className="px-4 py-2.5" style={{ color: T.textDim }}>{c.supplier || "—"}</td>
-                        <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(c.budgeted)}</td>
-                        <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRM(c.actual) : "—"}</td>
+                        <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRMValue(c.budgeted)}</td>
+                        <td className="px-4 py-2.5" style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRMValue(c.actual) : "—"}</td>
                         <td className="px-4 py-2.5" style={{ color: T.textDim }}>
                           {isApproved ? (c.paymentMethod || "—") : "—"}
                           {isApproved && getPaymentPhaseBreakdown(c) && (
@@ -3568,12 +3574,12 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                     {c.supplier && <div className="text-xs" style={{ color: T.textFaint }}>{c.supplier}</div>}
                     <div className="flex items-center justify-between text-sm pt-2" style={{ borderTop: `1px solid ${T.border}` }}>
                       <div>
-                        <div className="text-[10px] uppercase" style={{ color: T.textFaint }}>Budgeted</div>
-                        <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRM(c.budgeted)}</div>
+                        <div className="text-[10px] uppercase" style={{ color: T.textFaint }}>Amount (RM)</div>
+                        <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtRMValue(c.budgeted)}</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-[10px] uppercase" style={{ color: T.textFaint }}>Actual</div>
-                        <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRM(c.actual) : "—"}</div>
+                        <div className="text-[10px] uppercase" style={{ color: T.textFaint }}>Actual (RM)</div>
+                        <div style={{ color: T.text, fontFamily: "'IBM Plex Mono', monospace" }}>{isApproved ? fmtRMValue(c.actual) : "—"}</div>
                       </div>
                     </div>
                     {isApproved && (c.paymentMethod || getPaymentPhaseBreakdown(c)) && (
@@ -4551,7 +4557,7 @@ function CostModal({ data, onClose, onSave }) {
           style={{ background: T.amberSoft, color: T.amber }}
         >
           <AlertTriangle size={14} />
-          Category, Budgeted, Payment method and Payment terms are locked once a decision is
+          Category, Amount, Payment method and Payment terms are locked once a decision is
           recorded — set Approval status back to Pending to change those. Payment amounts and
           Comment(s) stay open below, since staged payments are usually recorded over several
           visits.
@@ -4597,7 +4603,7 @@ function CostModal({ data, onClose, onSave }) {
       <Field label="Supplier">
         <TextInput value={f.supplier} onChange={set("supplier")} placeholder="Vendor / supplier name" disabled={fieldsLocked} />
       </Field>
-      <Field label="Budgeted (RM)">
+      <Field label="Amount (RM)">
         <TextInput type="number" min="0" step="0.01" value={f.budgeted} onChange={set("budgeted")} disabled={fieldsLocked} />
       </Field>
       {isApproved && (
@@ -4648,11 +4654,11 @@ function CostModal({ data, onClose, onSave }) {
                 const prevPhaseStarted =
                   phaseIdx === 0 || (f.payments[phaseIdx - 1] || []).some((v) => (Number(v) || 0) > 0);
                 // Once this phase's payments already add up to (or past)
-                // its target share of Budgeted, there's no reason to offer
+                // its target share of Amount, there's no reason to offer
                 // another box for it — uses the raw, unrounded percentage
                 // for the comparison so a display-rounding quirk (e.g.
                 // 39.6% rounding to 40% on screen) doesn't trigger this a
-                // step early or late. Skipped entirely while Budgeted is
+                // step early or late. Skipped entirely while Amount is
                 // blank, since "enough" can't be determined without it.
                 const phaseSum = phasePayments.reduce((s, v) => s + (Number(v) || 0), 0);
                 const phaseSumPctRaw = budgetedNum > 0 ? (phaseSum / budgetedNum) * 100 : 0;
@@ -4737,7 +4743,7 @@ function CostModal({ data, onClose, onSave }) {
                 );
               })}
               <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
-                Each payment's % is its live share of Budgeted (RM). The phase heading shows the
+                Each payment's % is its live share of Amount (RM). The phase heading shows the
                 fixed target from the {f.paymentTerms} terms and won't change — even if what's
                 actually entered ends up different from that split.
                 {termsSplit.length > 1 && " The next phase unlocks once the current one has started."}
