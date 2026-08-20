@@ -1238,6 +1238,16 @@ function KpiCard({ label, value, accent, wide }) {
 export default function App() {
   const [role, setRole] = useState(() => {
     try {
+      // A role-specific link (?role=coordinator, ?role=finance, ?role=subcon,
+      // ?role=admin) sets and persists that role immediately, skipping the
+      // picker screen entirely — this is deliberately a hard switch, not a
+      // suggestion: visiting the link overwrites whatever role this device
+      // had saved before, the same way clicking a role button always has.
+      const roleParam = new URLSearchParams(window.location.search).get("role");
+      if (roleParam && Object.values(ROLES).includes(roleParam)) {
+        localStorage.setItem(ROLE_STORAGE_KEY, roleParam);
+        return roleParam;
+      }
       return localStorage.getItem(ROLE_STORAGE_KEY) || null;
     } catch {
       return null;
@@ -1261,6 +1271,18 @@ export default function App() {
   });
   const [subconName, setSubconName] = useState(() => {
     try {
+      // Paired with ?role=subcon — ?company=<name> on the same link fills
+      // in the subcontractor selection too, so a link like
+      // ?role=subcon&company=ABC%20Sdn%20Bhd drops that company straight
+      // into their own filtered view with no picker screens at all.
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("role") === ROLES.SUBCON) {
+        const companyParam = params.get("company");
+        if (companyParam) {
+          localStorage.setItem(SUBCON_NAME_STORAGE_KEY, companyParam);
+          return companyParam;
+        }
+      }
       return localStorage.getItem(SUBCON_NAME_STORAGE_KEY) || "";
     } catch {
       return "";
