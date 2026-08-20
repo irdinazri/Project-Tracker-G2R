@@ -1650,6 +1650,7 @@ export default function App() {
           siteNames={selected.siteNames || []}
           taskNames={Array.from(new Set((selected.tasks || []).map((t) => t.name).filter(Boolean)))}
           presetSite={modal.presetSite}
+          datesLocked={!!selected.scheduleLocked && role !== ROLES.ADMIN}
           onClose={() => setModal(null)}
           onSave={(data) => {
             mutateList("tasks", (l) => {
@@ -2997,7 +2998,15 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
   // schedule reads as read-only even for a Coordinator who could normally
   // edit it.
   const scheduleLocked = !!project.scheduleLocked && role !== ROLES.ADMIN;
+  // canEditNow stays the broader "can add/delete/generate right now" flag —
+  // still locked when the schedule is locked, since those change WHICH
+  // dates exist on the schedule, not just an existing task's own fields.
   const canEditNow = canEditTasks && !scheduleLocked;
+  // canEditDatesNow is narrower: locking the schedule only freezes the
+  // Start/Finish date fields specifically. Status, Progress, and the rest
+  // of a task's fields stay editable under plain canEditTasks even while
+  // locked — the lock protects the PLAN, not day-to-day progress tracking.
+  const canEditDatesNow = canEditTasks && !scheduleLocked;
   const tasks = project.tasks || [];
   const issues = project.issues || [];
   const siteNames = project.siteNames || [];
@@ -3069,7 +3078,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           <TextInput
             type="date"
             value={t.start}
-            disabled={!canEditNow}
+            disabled={!canEditDatesNow}
             onChange={(e) => onQuickUpdateTask(t.id, { start: e.target.value })}
             style={{ ...compactInput, minWidth: 132 }}
           />
@@ -3078,7 +3087,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           <TextInput
             type="date"
             value={t.end}
-            disabled={!canEditNow}
+            disabled={!canEditDatesNow}
             onChange={(e) => onQuickUpdateTask(t.id, { end: e.target.value })}
             style={{ ...compactInput, minWidth: 132 }}
           />
@@ -3087,7 +3096,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           <div className="flex items-center gap-1.5 flex-wrap">
             <Select
               value={t.status}
-              disabled={!canEditNow}
+              disabled={!canEditTasks}
               onChange={(e) => onQuickUpdateTask(t.id, statusChangePatch(t, e.target.value))}
               style={{ ...compactInput, minWidth: 118 }}
             >
@@ -3125,20 +3134,24 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             min="0"
             max="100"
             value={progressLocked ? (t.status === "Completed" ? 100 : 0) : (t.progress || 0)}
-            disabled={progressLocked || !canEditNow}
+            disabled={progressLocked || !canEditTasks}
             onChange={(e) => onQuickUpdateTask(t.id, { progress: clamp(Number(e.target.value) || 0, 0, 100) })}
             style={{ ...compactInput, width: 72, ...(progressLocked ? { background: T.bg, color: T.textFaint } : {}) }}
           />
         </td>
         <td className="px-4 py-3.5">
-          {canEditNow && (
+          {(canEditTasks || canEditNow) && (
             <div className="flex gap-1.5 justify-end">
-              <IconBtn title="Full edit (name, owner, site)" onClick={() => onEditTask(t)}>
-                <Pencil size={17} />
-              </IconBtn>
-              <IconBtn title="Delete task" danger onClick={() => onDeleteTask(t.id)}>
-                <Trash2 size={17} />
-              </IconBtn>
+              {canEditTasks && (
+                <IconBtn title="Full edit (name, owner, site, status)" onClick={() => onEditTask(t)}>
+                  <Pencil size={17} />
+                </IconBtn>
+              )}
+              {canEditNow && (
+                <IconBtn title="Delete task" danger onClick={() => onDeleteTask(t.id)}>
+                  <Trash2 size={17} />
+                </IconBtn>
+              )}
             </div>
           )}
         </td>
@@ -3182,14 +3195,18 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
               {t.owner || ""}
             </div>
           </div>
-          {canEditNow && (
+          {(canEditTasks || canEditNow) && (
             <div className="flex gap-1 shrink-0">
-              <IconBtn title="Full edit (name, owner, site)" onClick={() => onEditTask(t)}>
-                <Pencil size={16} />
-              </IconBtn>
-              <IconBtn title="Delete task" danger onClick={() => onDeleteTask(t.id)}>
-                <Trash2 size={16} />
-              </IconBtn>
+              {canEditTasks && (
+                <IconBtn title="Full edit (name, owner, site, status)" onClick={() => onEditTask(t)}>
+                  <Pencil size={16} />
+                </IconBtn>
+              )}
+              {canEditNow && (
+                <IconBtn title="Delete task" danger onClick={() => onDeleteTask(t.id)}>
+                  <Trash2 size={16} />
+                </IconBtn>
+              )}
             </div>
           )}
         </div>
@@ -3220,7 +3237,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             <TextInput
               type="date"
               value={t.start}
-              disabled={!canEditNow}
+              disabled={!canEditDatesNow}
               onChange={(e) => onQuickUpdateTask(t.id, { start: e.target.value })}
             />
           </Field>
@@ -3228,14 +3245,14 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
             <TextInput
               type="date"
               value={t.end}
-              disabled={!canEditNow}
+              disabled={!canEditDatesNow}
               onChange={(e) => onQuickUpdateTask(t.id, { end: e.target.value })}
             />
           </Field>
           <Field label="Status">
             <Select
               value={t.status}
-              disabled={!canEditNow}
+              disabled={!canEditTasks}
               onChange={(e) => onQuickUpdateTask(t.id, statusChangePatch(t, e.target.value))}
             >
               {TASK_STATUSES.map((s) => <option key={s}>{s}</option>)}
@@ -3247,7 +3264,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
               min="0"
               max="100"
               value={progressLocked ? (t.status === "Completed" ? 100 : 0) : (t.progress || 0)}
-              disabled={progressLocked || !canEditNow}
+              disabled={progressLocked || !canEditTasks}
               onChange={(e) => onQuickUpdateTask(t.id, { progress: clamp(Number(e.target.value) || 0, 0, 100) })}
               style={progressLocked ? { background: T.bg, color: T.textFaint } : undefined}
             />
@@ -3375,7 +3392,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
         })()
       ) : (
         <>
-          <GanttChart tasks={tasks} projectStart={project.startDate} projectEnd={project.endDate} onEditTask={canEditNow ? onEditTask : undefined} issues={issues} worksWeekends={!!project.worksWeekends} />
+          <GanttChart tasks={tasks} projectStart={project.startDate} projectEnd={project.endDate} onEditTask={canEditTasks ? onEditTask : undefined} issues={issues} worksWeekends={!!project.worksWeekends} />
 
           {/* Desktop: table, scrollable so narrow windows can't clip it either */}
           <div className="hidden sm:block rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
@@ -3997,7 +4014,7 @@ function ProjectModal({ data, knownSubcons, onClose, onSave }) {
   );
 }
 
-function TaskModal({ data, issues, siteNames, taskNames, presetSite, onClose, onSave }) {
+function TaskModal({ data, issues, siteNames, taskNames, presetSite, datesLocked, onClose, onSave }) {
   const [f, setF] = useState(
     data || {
       name: "",
@@ -4065,12 +4082,18 @@ function TaskModal({ data, issues, siteNames, taskNames, presetSite, onClose, on
       </p>
       <div className="grid grid-cols-2 gap-3.5">
         <Field label="Start">
-          <TextInput type="date" value={f.start} onChange={set("start")} />
+          <TextInput type="date" value={f.start} onChange={set("start")} disabled={datesLocked} />
         </Field>
         <Field label="Finish">
-          <TextInput type="date" value={f.end} onChange={set("end")} />
+          <TextInput type="date" value={f.end} onChange={set("end")} disabled={datesLocked} />
         </Field>
       </div>
+      {datesLocked && (
+        <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
+          The schedule is locked, so Start and Finish can't be changed here — everything else on
+          this task, including Status, still can.
+        </p>
+      )}
       {linkedOpenIssues.length > 0 && (
         <div
           className="flex flex-col gap-1 px-3 py-2.5 rounded-lg text-sm"
