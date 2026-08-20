@@ -20,6 +20,7 @@ import {
   Moon,
   Lock,
   Unlock,
+  History,
 } from "lucide-react";
 import {
   BarChart,
@@ -468,6 +469,32 @@ const fmtDate = (d) =>
   d
     ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
     : "—";
+const fmtDateTime = (iso) =>
+  iso
+    ? new Date(iso).toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+
+// Builds one audit-log entry. There's no login system in this app, so
+// accountability is role-level, not person-level — "Finance changed this,"
+// not "which specific person on the Finance team." For Subcon, the company
+// name is attached too, since that's the closest thing to identity that
+// role has. Real named-user tracking would require building actual
+// authentication first, which this doesn't attempt.
+function makeLogEntry(role, subconName, summary) {
+  return {
+    id: uid(),
+    timestamp: new Date().toISOString(),
+    actor: role,
+    actorDetail: role === ROLES.SUBCON ? subconName || null : null,
+    summary,
+  };
+}
 
 // One-line summary of a cost entry's payment terms, e.g. "40-60 · RM4,000.00 + RM6,000.00"
 // or "100 · RM25,000.00". Returns null if no terms structure is set (older
@@ -1623,7 +1650,14 @@ export default function App() {
                 onManageTemplates={() => setModal({ type: "taskTemplates" })}
                 onBulkGenerate={() => setModal({ type: "bulkGenerate" })}
                 hasDeptTemplates={(deptTemplates[selected.department] || []).length > 0}
-                onToggleScheduleLock={() => updateProject(selected.id, { scheduleLocked: !selected.scheduleLocked })}
+                onToggleScheduleLock={() => {
+                  const willLock = !selected.scheduleLocked;
+                  const entry = makeLogEntry(role, subconName, willLock ? "Locked the schedule" : "Unlocked the schedule");
+                  updateProject(selected.id, {
+                    scheduleLocked: willLock,
+                    activityLog: [...(selected.activityLog || []), entry],
+                  });
+                }}
                 onAddCost={() => setModal({ type: "cost" })}
                 onEditCost={(c) => setModal({ type: "cost", data: c })}
                 onDeleteCost={(id) => mutateList("costs", (l) => l.filter((x) => x.id !== id))}
@@ -1696,9 +1730,27 @@ export default function App() {
           data={modal.data}
           onClose={() => setModal(null)}
           onSave={(data) => {
-            mutateList("costs", (l) =>
-              modal.data ? l.map((c) => (c.id === modal.data.id ? { ...c, ...data } : c)) : [...l, { id: uid(), ...data }]
-            );
+            const isEdit = !!modal.data;
+            const oldApproval = isEdit ? modal.data.approval : null;
+            const newApproval = data.approval;
+            const approvalChanged = isEdit && oldApproval !== newApproval;
+
+            const nextCosts = isEdit
+              ? (selected.costs || []).map((c) => (c.id === modal.data.id ? { ...c, ...data } : c))
+              : [...(selected.costs || []), { id: uid(), ...data }];
+
+            const nextActivityLog = approvalChanged
+              ? [
+                  ...(selected.activityLog || []),
+                  makeLogEntry(
+                    role,
+                    subconName,
+                    `Approval for "${data.description || data.category || "cost entry"}" changed: ${oldApproval} → ${newApproval}`
+                  ),
+                ]
+              : selected.activityLog || [];
+
+            updateProject(selected.id, { costs: nextCosts, activityLog: nextActivityLog });
             setModal(null);
           }}
         />
@@ -2878,11 +2930,13 @@ function ProjectDetailView({
   const { canEditProject, canPrintReport, role } = usePermissions();
   const m = calcProjectMetrics(project);
   const showCostsTab = role !== ROLES.SUBCON;
+  const showActivityTab = role !== ROLES.SUBCON;
   const tabs = [
     ["overview", "Overview"],
     ["gantt", "Gantt"],
     ...(showCostsTab ? [["costs", "Costs"]] : []),
     ["issues", `Issues${m.openIssuesCount ? ` (${m.openIssuesCount})` : ""}`],
+    ...(showActivityTab ? [["activity", "Activity"]] : []),
   ];
   const tabIds = tabs.map(([id]) => id);
   const effectiveTab = tabIds.includes(tab) ? tab : "overview";
@@ -2950,6 +3004,7 @@ function ProjectDetailView({
       {effectiveTab === "issues" && (
         <IssuesTab project={project} onAddIssue={onAddIssue} onEditIssue={onEditIssue} onDeleteIssue={onDeleteIssue} />
       )}
+      {effectiveTab === "activity" && showActivityTab && <ActivityTab project={project} />}
     </div>
   );
 }
@@ -3914,6 +3969,53 @@ function IssuesTab({ project, onAddIssue, onEditIssue, onDeleteIssue }) {
         </div>
         </>
       )}
+    </div>
+  );
+}
+
+function ActivityTab({ project }) {
+  // Newest first — the same convention a changelog or commit log uses,
+  // since the most recent event is almost always the one someone actually
+  // wants to check.
+  const log = [...(project.activityLog || [])].reverse();
+
+  if (log.length === 0) {
+    return (
+      <EmptyState
+        icon={History}
+        title="No activity yet"
+        body="Cost approval decisions and schedule lock changes will show up here as they happen."
+      />
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs leading-relaxed" style={{ color: T.textFaint }}>
+        Tracks who (by role) changed a cost's approval status or locked/unlocked the schedule,
+        and when. There's no login system in this app, so this records which role acted, not
+        which specific person — for Subcon, the company name is included too.
+      </p>
+      {log.map((entry) => (
+        <div
+          key={entry.id}
+          className="flex items-start gap-3 rounded-xl p-3.5"
+          style={{ background: T.surface, border: `1px solid ${T.border}` }}
+        >
+          <div className="shrink-0 mt-0.5" style={{ color: T.textFaint }}>
+            <History size={16} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm" style={{ color: T.text }}>
+              {entry.summary}
+            </div>
+            <div className="text-xs mt-1" style={{ color: T.textFaint }}>
+              {ROLE_LABELS[entry.actor] || entry.actor}
+              {entry.actorDetail ? ` — ${entry.actorDetail}` : ""} · {fmtDateTime(entry.timestamp)}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
