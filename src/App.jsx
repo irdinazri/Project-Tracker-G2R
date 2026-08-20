@@ -1111,9 +1111,10 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                                 }}
                               />
                               <div
-                                className="absolute inset-y-0 right-0"
+                                className="absolute inset-y-0"
                                 style={{
-                                  width: redDays * effectivePxPerDay,
+                                  left: accentDays * effectivePxPerDay,
+                                  right: 0,
                                   background: finishedLate ? T.red : `${T.red}33`,
                                 }}
                               />
