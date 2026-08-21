@@ -975,8 +975,9 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
         </div>
       </div>
 
-      <div ref={scrollRef} className="overflow-x-auto">
+      <div ref={scrollRef} className="overflow-auto" style={{ maxHeight: compact ? undefined : "60vh" }}>
         <div style={{ minWidth: LABEL_W + timelineWidth }}>
+          <div style={{ position: "sticky", top: 0, zIndex: 3, background: T.bgElevated }}>
           <div className={`relative flex px-4 pt-2 ${compact ? "text-[11px]" : "text-[13px]"}`} style={{ color: T.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>
             <div
               style={{ width: LABEL_W, flexShrink: 0, position: "sticky", left: 0, background: T.bgElevated, zIndex: 2 }}
@@ -1024,6 +1025,7 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                 );
               })}
             </div>
+          </div>
           </div>
 
           <div className="px-4 pb-4 flex flex-col gap-1.5">
@@ -2182,15 +2184,6 @@ function PrintReport({ project }) {
   const duration =
     project.startDate && project.endDate ? Math.round(daysBetween(project.startDate, project.endDate)) : null;
 
-  const byCategory = COST_CATEGORIES.map((cat) => {
-    const items = costs.filter((c) => c.category === cat);
-    return {
-      cat,
-      budgeted: items.reduce((s, c) => s + (Number(c.budgeted) || 0), 0),
-      actual: items.filter((c) => c.approval === "Approved").reduce((s, c) => s + (Number(c.actual) || 0), 0),
-    };
-  }).filter((r) => r.budgeted || r.actual);
-
   // Plain object, not memoized — PrintReport only renders once when the
   // print dialog is triggered, so there's no repeated-render cost to guard
   // against here.
@@ -2287,32 +2280,6 @@ function PrintReport({ project }) {
           ))}
         </div>
       </div>
-
-      {byCategory.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <h2 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: PR.dim, marginBottom: 6 }}>
-            Cost by category
-          </h2>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={th}>Category</th>
-                <th style={th}>Amount (RM)</th>
-                <th style={th}>Actual (RM)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {byCategory.map((r) => (
-                <tr key={r.cat}>
-                  <td style={td}>{r.cat}</td>
-                  <td style={td}>{fmtRMValue(r.budgeted)}</td>
-                  <td style={td}>{fmtRMValue(r.actual)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       <PrintGanttChart tasks={tasks} projectStart={project.startDate} projectEnd={project.endDate} />
 
