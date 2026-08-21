@@ -84,6 +84,11 @@ const PAYMENT_TERMS_SPLITS = {
   "20-80": [20, 80],
   "100": [100],
 };
+// Covers well beyond any realistic number of instalments in one phase —
+// 10 payments on a single staged terms phase would already be unusual.
+// Falls back to plain "Payment N" only past that, which is fine once
+// you're that deep into extra payments anyway.
+const PAYMENT_ORDINAL_WORDS = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth"];
 const ISSUE_SEVERITIES = ["Low", "Medium", "High", "Critical"];
 const ISSUE_STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
 
@@ -4957,7 +4962,9 @@ function CostModal({ data, onClose, onSave }) {
                       const withinPhaseUnlocked =
                         payIdx === 0 ? prevPhaseStarted : (Number(phasePayments[payIdx - 1]) || 0) > 0;
                       const isDisabled = paymentAmountsLocked || !withinPhaseUnlocked;
-                      const label = payIdx === 0 ? "First payment" : payIdx === 1 ? "Second payment" : `Payment ${payIdx + 1}`;
+                      const label = PAYMENT_ORDINAL_WORDS[payIdx]
+                        ? `${PAYMENT_ORDINAL_WORDS[payIdx]} payment`
+                        : `Payment ${payIdx + 1}`;
                       const pctDisplay =
                         val === "" || val === undefined || val === null
                           ? "—"
