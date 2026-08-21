@@ -533,11 +533,27 @@ function getPaymentPhaseBreakdown(c) {
   }
   if (phases.length === 0) return null;
 
-  return split.map((targetPct, idx) => ({
-    label: split.length > 1 ? (idx === 0 ? "First phase" : "Second phase") : null,
-    targetPct,
-    amounts: (phases[idx] || []).filter((v) => v !== undefined && v !== "" && Number(v) > 0),
-  }));
+  const budgetedNum = Number(c.budgeted) || 0;
+
+  return split.map((targetPct, idx) => {
+    const amounts = (phases[idx] || []).filter((v) => v !== undefined && v !== "" && Number(v) > 0);
+    const paidAmount = amounts.reduce((s, v) => s + (Number(v) || 0), 0);
+    // null (not 0) when Amount is blank — "short by RM0" would be a false
+    // claim of being fully paid when there's actually nothing to measure
+    // against yet.
+    const targetAmount = budgetedNum > 0 ? (targetPct / 100) * budgetedNum : null;
+    const isShort = targetAmount != null && paidAmount < targetAmount - 0.01;
+    const shortfall = isShort ? targetAmount - paidAmount : 0;
+    return {
+      label: split.length > 1 ? (idx === 0 ? "First phase" : "Second phase") : null,
+      targetPct,
+      amounts,
+      paidAmount,
+      targetAmount,
+      isShort,
+      shortfall,
+    };
+  });
 }
 
 // Once Finance records a decision (Approved/Rejected), the entry locks:
@@ -604,26 +620,13 @@ function calcProjectMetrics(p) {
   // approved cost with a payment phase that's short of its actual target.
   const allTasksCompleted = tasks.length > 0 && tasks.every((t) => t.status === "Completed");
   const pendingApprovalCount = costs.filter((c) => c.approval === "Pending").length;
+  // isShort is computed once, inside getPaymentPhaseBreakdown — reused
+  // here rather than re-deriving target/paid amounts a second time, so
+  // this can't silently drift from what the Costs tab itself now flags.
   const unpaidPhaseCount = costs.filter((c) => {
     if (c.approval !== "Approved") return false;
     const breakdown = getPaymentPhaseBreakdown(c);
-    if (!breakdown) return false;
-    const budgetedNum = Number(c.budgeted) || 0;
-    // Can't judge "fully paid" without a real Amount to measure phases
-    // against — if it's blank/zero, don't flag on this cost at all rather
-    // than guess.
-    if (budgetedNum <= 0) return false;
-    // Comparing the actual paid sum against the phase's real target
-    // amount, not just checking whether the phase has ANY value in it —
-    // a phase with something recorded but still short of its target
-    // (e.g. RM20 paid against a RM50 target) is exactly as open as one
-    // with nothing recorded at all. A small epsilon guards against
-    // floating-point rounding on currency math.
-    return breakdown.some((phase) => {
-      const targetAmount = (phase.targetPct / 100) * budgetedNum;
-      const paidAmount = phase.amounts.reduce((s, v) => s + (Number(v) || 0), 0);
-      return paidAmount < targetAmount - 0.01;
-    });
+    return !!breakdown && breakdown.some((phase) => phase.isShort);
   }).length;
   const financeOpenCount = pendingApprovalCount + unpaidPhaseCount;
   const scheduleDoneFinanceOpen = allTasksCompleted && financeOpenCount > 0;
@@ -2459,9 +2462,10 @@ function PrintReport({ project }) {
                       <div style={{ fontSize: 10.5, color: PR.dim, marginTop: 2 }}>
                         <div>{c.paymentTerms}</div>
                         {getPaymentPhaseBreakdown(c).map((phase, i) => (
-                          <div key={i}>
+                          <div key={i} style={{ color: phase.isShort ? PR.amber : PR.dim }}>
                             {phase.label ? `${phase.label} (${phase.targetPct}%): ` : ""}
                             {phase.amounts.length > 0 ? phase.amounts.map((a) => fmtRM(a)).join(" + ") : "not yet paid"}
+                            {phase.isShort ? ` — ${fmtRM(phase.shortfall)} remaining` : ""}
                           </div>
                         ))}
                       </div>
@@ -3738,9 +3742,10 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                             <div className="text-xs mt-1 flex flex-col gap-0.5" style={{ color: T.textFaint }}>
                               <span>{c.paymentTerms}</span>
                               {getPaymentPhaseBreakdown(c).map((phase, i) => (
-                                <span key={i}>
+                                <span key={i} style={phase.isShort ? { color: T.amber } : undefined}>
                                   {phase.label ? `${phase.label} (${phase.targetPct}%): ` : ""}
                                   {phase.amounts.length > 0 ? phase.amounts.map((a) => fmtRM(a)).join(" + ") : "not yet paid"}
+                                  {phase.isShort ? ` — ${fmtRM(phase.shortfall)} remaining` : ""}
                                 </span>
                               ))}
                             </div>
@@ -3821,9 +3826,10 @@ function CostsTab({ project, m, onAddCost, onEditCost, onDeleteCost }) {
                         </span>
                         {getPaymentPhaseBreakdown(c) &&
                           getPaymentPhaseBreakdown(c).map((phase, i) => (
-                            <span key={i}>
+                            <span key={i} style={phase.isShort ? { color: T.amber } : undefined}>
                               {phase.label ? `${phase.label} (${phase.targetPct}%): ` : ""}
                               {phase.amounts.length > 0 ? phase.amounts.map((a) => fmtRM(a)).join(" + ") : "not yet paid"}
+                              {phase.isShort ? ` — ${fmtRM(phase.shortfall)} remaining` : ""}
                             </span>
                           ))}
                       </div>
