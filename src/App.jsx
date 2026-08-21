@@ -4791,7 +4791,19 @@ function CostModal({ data, onClose, onSave }) {
       ...f,
       budgeted: Number(f.budgeted) || 0,
       actual: termsSplit ? computedActual : Number(f.actual) || 0,
-      payments: termsSplit ? f.payments.map((phase) => phase.map((v) => Number(v) || 0)) : f.payments,
+      // Empty boxes stay empty strings, not 0 — Number("") || 0 would
+      // silently turn "never touched" into a literal saved zero, which
+      // then displays as if someone actually typed 0 the next time this
+      // entry is reopened. Only values someone actually entered get
+      // converted to real numbers; everything else keeps meaning "no
+      // amount recorded here yet," which is what the percentage display,
+      // the sequential unlock, and the finance-pending badge all already
+      // expect this field to mean.
+      payments: termsSplit
+        ? f.payments.map((phase) =>
+            phase.map((v) => (v === "" || v === undefined || v === null ? "" : Number(v) || 0))
+          )
+        : f.payments,
       // Old fields dropped from new saves now that payments[][] carries
       // this — kept out entirely rather than left stale alongside the
       // real data.
