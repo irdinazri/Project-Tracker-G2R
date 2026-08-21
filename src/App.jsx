@@ -786,9 +786,85 @@ const inputStyle = {
   fontFamily: "'IBM Plex Sans', sans-serif",
 };
 
-function TextInput(props) {
-  return <input {...props} style={{ ...inputStyle, ...(props.style || {}) }} className="focus:outline-none" />;
+const TextInput = React.forwardRef((props, ref) => (
+  <input {...props} ref={ref} style={{ ...inputStyle, ...(props.style || {}) }} className="focus:outline-none" />
+));
+
+// Live comma-formatted number input — "72000" becomes "72,000" as you
+// type, not just after you click away. value/onChange work in RAW terms
+// (no commas) exactly like every other numeric field in this app; the
+// comma formatting is purely a display concern handled inside here.
+//
+// The one hard part of this pattern is the cursor: naively re-rendering a
+// formatted string on every keystroke makes the cursor jump to the end of
+// the field, which makes editing anything but the very last digit feel
+// broken. This tracks how many commas sit before the cursor before and
+// after reformatting, and explicitly restores the cursor to the
+// equivalent position — same digit-relative spot, not the same character
+// index, since the comma count itself can change on every keystroke.
+function CurrencyInput({ value, onChange, disabled, placeholder, style }) {
+  const inputRef = useRef(null);
+  const pendingCursorRef = useRef(null);
+
+  const formatDisplay = (raw) => {
+    const str = String(raw ?? "");
+    if (str === "") return "";
+    const [intPart, decPart] = str.split(".");
+    const withCommas = (intPart || "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return decPart !== undefined ? `${withCommas}.${decPart}` : withCommas;
+  };
+
+  const handleChange = (e) => {
+    const rawInput = e.target.value;
+    const cursorPos = e.target.selectionStart;
+
+    let cleaned = rawInput.replace(/[^\d.]/g, "");
+    const firstDot = cleaned.indexOf(".");
+    if (firstDot !== -1) {
+      cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, "");
+    }
+
+    const beforeCursorRaw = rawInput.slice(0, cursorPos);
+    const commasBeforeCursor = (beforeCursorRaw.match(/,/g) || []).length;
+    const strippedBeforeCursor = (beforeCursorRaw.match(/[^\d.,]/g) || []).length;
+    const rawCharsBeforeCursor = cursorPos - commasBeforeCursor - strippedBeforeCursor;
+
+    const formatted = formatDisplay(cleaned);
+    let newPos = formatted.length;
+    let count = 0;
+    for (let i = 0; i < formatted.length; i++) {
+      if (count >= rawCharsBeforeCursor) {
+        newPos = i;
+        break;
+      }
+      if (formatted[i] !== ",") count++;
+      newPos = i + 1;
+    }
+
+    pendingCursorRef.current = newPos;
+    onChange({ target: { value: cleaned } });
+  };
+
+  useEffect(() => {
+    if (inputRef.current && pendingCursorRef.current != null && document.activeElement === inputRef.current) {
+      inputRef.current.setSelectionRange(pendingCursorRef.current, pendingCursorRef.current);
+    }
+  }, [value]);
+
+  return (
+    <TextInput
+      ref={inputRef}
+      type="text"
+      inputMode="decimal"
+      value={formatDisplay(value)}
+      onChange={handleChange}
+      disabled={disabled}
+      placeholder={placeholder}
+      style={style}
+    />
+  );
 }
+
 function Select({ children, ...props }) {
   return (
     <select {...props} style={{ ...inputStyle, ...(props.style || {}) }} className="focus:outline-none">
@@ -4906,7 +4982,7 @@ function CostModal({ data, onClose, onSave }) {
         <TextInput value={f.supplier} onChange={set("supplier")} placeholder="Vendor / supplier name" disabled={fieldsLocked} />
       </Field>
       <Field label="Amount (RM)">
-        <TextInput type="number" min="0" step="0.01" value={f.budgeted} onChange={set("budgeted")} disabled={fieldsLocked} />
+        <CurrencyInput value={f.budgeted} onChange={set("budgeted")} disabled={fieldsLocked} />
       </Field>
       {isApproved && (
         <>
@@ -4994,10 +5070,7 @@ function CostModal({ data, onClose, onSave }) {
                         <div key={payIdx} className="flex items-end gap-1.5">
                           <div className="flex-1">
                             <Field label={label}>
-                              <TextInput
-                                type="number"
-                                min="0"
-                                step="0.01"
+                              <CurrencyInput
                                 value={val}
                                 onChange={(e) => setPhasePaymentAt(phaseIdx, payIdx, e.target.value)}
                                 disabled={isDisabled}
@@ -5068,7 +5141,7 @@ function CostModal({ data, onClose, onSave }) {
                 </p>
               </>
             ) : (
-              <TextInput type="number" min="0" step="0.01" value={f.actual} onChange={set("actual")} disabled={fieldsLocked} />
+              <CurrencyInput value={f.actual} onChange={set("actual")} disabled={fieldsLocked} />
             )}
           </Field>
           <Field label="Comment(s)">
