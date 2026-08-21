@@ -601,16 +601,29 @@ function calcProjectMetrics(p) {
   // Two separate axes of "done" — schedule and money — that don't
   // automatically agree with each other. A Coordinator can mark every task
   // Completed while Finance still has an approval sitting untouched, or an
-  // approved cost with a payment phase that was never actually logged.
-  // financeOpenCount reuses getPaymentPhaseBreakdown rather than
-  // re-checking phase amounts separately, so this can't silently drift
-  // from what the Costs tab itself considers "not yet paid."
+  // approved cost with a payment phase that's short of its actual target.
   const allTasksCompleted = tasks.length > 0 && tasks.every((t) => t.status === "Completed");
   const pendingApprovalCount = costs.filter((c) => c.approval === "Pending").length;
   const unpaidPhaseCount = costs.filter((c) => {
     if (c.approval !== "Approved") return false;
     const breakdown = getPaymentPhaseBreakdown(c);
-    return !!breakdown && breakdown.some((phase) => phase.amounts.length === 0);
+    if (!breakdown) return false;
+    const budgetedNum = Number(c.budgeted) || 0;
+    // Can't judge "fully paid" without a real Amount to measure phases
+    // against — if it's blank/zero, don't flag on this cost at all rather
+    // than guess.
+    if (budgetedNum <= 0) return false;
+    // Comparing the actual paid sum against the phase's real target
+    // amount, not just checking whether the phase has ANY value in it —
+    // a phase with something recorded but still short of its target
+    // (e.g. RM20 paid against a RM50 target) is exactly as open as one
+    // with nothing recorded at all. A small epsilon guards against
+    // floating-point rounding on currency math.
+    return breakdown.some((phase) => {
+      const targetAmount = (phase.targetPct / 100) * budgetedNum;
+      const paidAmount = phase.amounts.reduce((s, v) => s + (Number(v) || 0), 0);
+      return paidAmount < targetAmount - 0.01;
+    });
   }).length;
   const financeOpenCount = pendingApprovalCount + unpaidPhaseCount;
   const scheduleDoneFinanceOpen = allTasksCompleted && financeOpenCount > 0;
