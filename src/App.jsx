@@ -975,9 +975,8 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
         </div>
       </div>
 
-      <div ref={scrollRef} className="overflow-auto" style={{ maxHeight: compact ? undefined : "60vh" }}>
+      <div ref={scrollRef} className="overflow-x-auto">
         <div style={{ minWidth: LABEL_W + timelineWidth }}>
-          <div style={{ position: "sticky", top: 0, zIndex: 3, background: T.bgElevated }}>
           <div className={`relative flex px-4 pt-2 ${compact ? "text-[11px]" : "text-[13px]"}`} style={{ color: T.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>
             <div
               style={{ width: LABEL_W, flexShrink: 0, position: "sticky", left: 0, background: T.bgElevated, zIndex: 2 }}
@@ -1025,7 +1024,6 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                 );
               })}
             </div>
-          </div>
           </div>
 
           <div className="px-4 pb-4 flex flex-col gap-1.5">
