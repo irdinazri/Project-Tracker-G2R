@@ -622,6 +622,8 @@ function calcProjectMetrics(p) {
     budgetUtilization,
     health,
     financeOpenCount,
+    pendingApprovalCount,
+    unpaidPhaseCount,
     scheduleDoneFinanceOpen,
   };
 }
@@ -667,13 +669,28 @@ function HealthPill({ health }) {
 // with an unpaid payment phase). Deliberately separate from HealthPill —
 // schedule-done and finance-done are two different things, this doesn't
 // replace or alter what the health pill itself means.
-function FinancePendingBadge({ count }) {
-  if (!count) return null;
+function FinancePendingBadge({ pendingApprovalCount = 0, unpaidPhaseCount = 0 }) {
+  const total = pendingApprovalCount + unpaidPhaseCount;
+  if (!total) return null;
+
+  // Two genuinely different situations, not one blended count: "nobody's
+  // reviewed this yet" needs a different action than "this was approved,
+  // the staged payment just hasn't finished landing yet" — the latter can
+  // be completely normal given how long staged terms take, so it shouldn't
+  // read as identical to an untouched approval sitting in someone's queue.
+  const parts = [];
+  if (pendingApprovalCount > 0) {
+    parts.push(`${pendingApprovalCount} pending approval${pendingApprovalCount === 1 ? "" : "s"}`);
+  }
+  if (unpaidPhaseCount > 0) {
+    parts.push(`${unpaidPhaseCount} approved but not fully paid yet`);
+  }
+
   return (
     <span
       className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium"
       style={{ background: T.amberSoft, color: T.amber }}
-      title={`Schedule is fully complete, but ${count} cost item${count === 1 ? "" : "s"} still ${count === 1 ? "needs" : "need"} finance follow-up`}
+      title={`Schedule is fully complete, but ${parts.join(" · ")}`}
     >
       <AlertTriangle size={10} />
       Finance pending
@@ -2770,7 +2787,10 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, 
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <HealthPill health={m.health} />
                           {canSeeFinancials && (
-                            <FinancePendingBadge count={m.scheduleDoneFinanceOpen ? m.financeOpenCount : 0} />
+                            <FinancePendingBadge
+                            pendingApprovalCount={m.scheduleDoneFinanceOpen ? m.pendingApprovalCount : 0}
+                            unpaidPhaseCount={m.scheduleDoneFinanceOpen ? m.unpaidPhaseCount : 0}
+                          />
                           )}
                         </div>
                       </td>
@@ -2878,7 +2898,10 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <HealthPill health={m.health} />
                     {canSeeFinancials && (
-                      <FinancePendingBadge count={m.scheduleDoneFinanceOpen ? m.financeOpenCount : 0} />
+                      <FinancePendingBadge
+                            pendingApprovalCount={m.scheduleDoneFinanceOpen ? m.pendingApprovalCount : 0}
+                            unpaidPhaseCount={m.scheduleDoneFinanceOpen ? m.unpaidPhaseCount : 0}
+                          />
                     )}
                   </div>
                 </div>
@@ -2993,7 +3016,10 @@ function ProjectDetailView({
               </h1>
               <HealthPill health={m.health} />
               {canSeeFinancials && (
-                <FinancePendingBadge count={m.scheduleDoneFinanceOpen ? m.financeOpenCount : 0} />
+                <FinancePendingBadge
+                            pendingApprovalCount={m.scheduleDoneFinanceOpen ? m.pendingApprovalCount : 0}
+                            unpaidPhaseCount={m.scheduleDoneFinanceOpen ? m.unpaidPhaseCount : 0}
+                          />
               )}
             </div>
             <p className="text-sm mt-1" style={{ color: T.textDim }}>
