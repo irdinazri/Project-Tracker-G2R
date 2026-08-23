@@ -2060,7 +2060,11 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
   const todayVal = todayStr();
   const todayPct = todayVal >= rangeStartStr && todayVal <= rangeEndStr ? pctForDate(todayVal) : null;
   const targetStartPct = projectStart && projectStart >= rangeStartStr && projectStart <= rangeEndStr ? pctForDate(projectStart) : null;
-  const targetEndPct = projectEnd && projectEnd >= rangeStartStr && projectEnd <= rangeEndStr ? pctForDate(projectEnd) : null;
+  // Drawn at the END of the target finish day (same "day after" trick as
+  // task bars use), not its start — so a task completing exactly on the
+  // deadline touches this line precisely instead of appearing to run past
+  // it once task bars were fixed to reach through their own full end day.
+  const targetEndPct = projectEnd && projectEnd >= rangeStartStr && projectEnd <= rangeEndStr ? pctForDate(addDaysStr(projectEnd, 1)) : null;
 
   const statusColor = {
     "Not Started": PR.faint,
@@ -2134,7 +2138,14 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
       const groupTasks = bucket.get(name);
       const withPct = groupTasks.map((t) => {
         const startPct = pctForDate(t.start || rangeStartStr);
-        const rawEndPct = pctForDate(t.end || t.start || rangeStartStr);
+        // A task ending on a given day should visually occupy that WHOLE
+        // day, not just its starting instant — pctForDate(t.end) gives the
+        // moment that day BEGINS, which left every task looking like it
+        // stopped short of where it actually finished (and specifically
+        // short of the target-finish line, when a task actually completed
+        // exactly on the target date). Using the start of the NEXT day is
+        // the same point in time as "the end of this day."
+        const rawEndPct = pctForDate(addDaysStr(t.end || t.start || rangeStartStr, 1));
         const endPct = Math.max(rawEndPct, startPct + (100 / totalDays) * 0.6);
         return { task: t, startPct, endPct };
       });
@@ -2258,7 +2269,11 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
                 )}
                 {g.items.map(({ task: t, startPct, endPct, lane }) => {
                   const color = statusColor[t.status] || PR.faint;
-                  const plannedEndPct = t.plannedEnd ? pctForDate(t.plannedEnd) : null;
+                  // Same day-boundary fix as the task end position above —
+                  // plannedEnd is "the day this was originally due," and
+                  // the overrun split should land at the END of that day,
+                  // not its start.
+                  const plannedEndPct = t.plannedEnd ? pctForDate(addDaysStr(t.plannedEnd, 1)) : null;
                   const overrunSpan = plannedEndPct != null && plannedEndPct >= startPct && plannedEndPct < endPct;
                   const finishedLate = t.status === "Completed" && overrunSpan && t.plannedEnd < t.end;
                   const isDelayedOverrun = t.status === "Delayed" && overrunSpan;
