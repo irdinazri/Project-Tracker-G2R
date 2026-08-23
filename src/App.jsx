@@ -1712,6 +1712,11 @@ export default function App() {
           .app-shell { display: none !important; }
           .print-report { display: block !important; }
           @page { margin: 14mm; }
+          /* Browsers/PDF generators often silently drop background colors
+             when printing unless told otherwise — this affects the Gantt
+             bar fills specifically, which rely on background color, not
+             text color, to show status. */
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
       `}</style>
 
@@ -2106,7 +2111,7 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
       dayTicks.push({
         dateStr: cursor,
         pct: pctForDate(cursor),
-        label: new Date(cursor).toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+        label: String(new Date(cursor).getDate()),
       });
       cursor = addDaysStr(cursor, tickIntervalDays);
     }
@@ -2313,11 +2318,11 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
       <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 9, color: PR.dim, flexWrap: "wrap", alignItems: "center" }}>
         {Object.entries(statusColor).map(([k, c]) => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-            <span style={{ width: 8, height: 8, background: c, display: "inline-block", borderRadius: 2 }} /> {k}
+            <span style={{ color: c, fontSize: 12, lineHeight: 1 }}>●</span> {k}
           </span>
         ))}
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 8, height: 8, background: PR.red, display: "inline-block", borderRadius: 2 }} /> Overrun / late
+          <span style={{ color: PR.red, fontSize: 12, lineHeight: 1 }}>●</span> Overrun / late
         </span>
         <span style={{ color: PR.faint }}>Day numbers along the top are day-of-month. See Schedule below for exact dates and site.</span>
       </div>
