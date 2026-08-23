@@ -2089,7 +2089,14 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
   // Day ticks now carry the month too ("28 Jul" rather than just "28"), so
   // the chart reads correctly on its own even if the month-marker row above
   // does nothing at all — the actual date reference doesn't depend on it.
-  const tickIntervalDays = totalDays <= 14 ? 2 : totalDays <= 35 ? 5 : totalDays <= 90 ? 10 : totalDays <= 180 ? 20 : 30;
+  //
+  // Unlike the interactive chart, this one has no zoom or scroll — it's a
+  // fixed-width printed page — so "show every day" only holds up to a
+  // point before the numbers start overlapping. ~45 days comfortably fits
+  // one tick per day on this page width; past that, thinning out is the
+  // only way to keep the labels legible rather than a wall of overlapping
+  // digits.
+  const tickIntervalDays = totalDays <= 45 ? 1 : totalDays <= 90 ? 2 : totalDays <= 180 ? 5 : totalDays <= 365 ? 10 : 30;
   const dayTicks = [];
   {
     let cursor = rangeStartStr;
