@@ -1215,7 +1215,7 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                     title={g.name}
                   >
                     <span className="truncate">{g.name}</span>
-                    {g.laneCount > 1 && (
+                    {g.items.length > 1 && (
                       <span className="text-[11px] shrink-0" style={{ color: T.textFaint }}>
                         ({g.items.length} sites)
                       </span>
@@ -2006,6 +2006,7 @@ const PR = {
   red: "#B91C1C",
   amber: "#B45309",
   green: "#15803D",
+  completed: "#0F766E",
 };
 
 // Static, non-interactive Gantt for the printed report. Deliberately NOT the
@@ -2406,6 +2407,20 @@ function PrintReport({ project }) {
           Generated {fmtDate(todayStr())}
           <br />
           Health: <strong style={{ color: PR[m.health.toLowerCase()] || PR.text }}>{HEALTH_LABEL[m.health]}</strong>
+          {m.scheduleDoneFinanceOpen && (
+            <>
+              <br />
+              <strong style={{ color: PR.amber }}>
+                ⚠ Finance pending:{" "}
+                {[
+                  m.pendingApprovalCount > 0 ? `${m.pendingApprovalCount} pending approval${m.pendingApprovalCount === 1 ? "" : "s"}` : null,
+                  m.unpaidPhaseCount > 0 ? `${m.unpaidPhaseCount} approved but not fully paid` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </strong>
+            </>
+          )}
         </div>
       </div>
 
