@@ -2012,6 +2012,7 @@ const PR = {
   amber: "#B45309",
   green: "#15803D",
   completed: "#0F766E",
+  accent: "#14B8A6",
 };
 
 // Static, non-interactive Gantt for the printed report. Deliberately NOT the
@@ -2275,7 +2276,7 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
                   // not its start.
                   const plannedEndPct = t.plannedEnd ? pctForDate(addDaysStr(t.plannedEnd, 1)) : null;
                   const overrunSpan = plannedEndPct != null && plannedEndPct >= startPct && plannedEndPct < endPct;
-                  const finishedLate = t.status === "Completed" && overrunSpan && t.plannedEnd < t.end;
+                  const finishedLate = t.status === "Completed" && overrunSpan;
                   const isDelayedOverrun = t.status === "Delayed" && overrunSpan;
                   const hasOverrun = isDelayedOverrun || finishedLate;
                   const top = 3 + lane * (LANE_H + LANE_GAP);
@@ -2290,8 +2291,8 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
                               width: `${Math.max(0, plannedEndPct - startPct)}%`,
                               top,
                               height: LANE_H - 2,
-                              background: finishedLate ? PR.green : `${color}55`,
-                              border: `1px solid ${finishedLate ? PR.green : color}`,
+                              background: finishedLate ? PR.green : `${PR.accent}33`,
+                              border: `1px solid ${finishedLate ? PR.green : PR.accent}`,
                               borderRadius: 2,
                             }}
                           />
@@ -2302,7 +2303,7 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
                               width: `${Math.max(0, endPct - plannedEndPct)}%`,
                               top,
                               height: LANE_H - 2,
-                              background: PR.red,
+                              background: finishedLate ? PR.red : `${PR.red}33`,
                               border: `1px solid ${PR.red}`,
                               borderRadius: 2,
                             }}
