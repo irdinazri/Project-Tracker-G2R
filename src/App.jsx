@@ -2165,7 +2165,7 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
     });
   }
 
-  const LABEL_W = 150;
+  const LABEL_W = 215;
   const LANE_H = 12;
   const LANE_GAP = 2;
 
@@ -2316,11 +2316,20 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
                             width: `${Math.max(0, endPct - startPct)}%`,
                             top,
                             height: LANE_H - 2,
-                            background: `${color}55`,
+                            background: `${color}33`,
                             border: `1px solid ${color}`,
                             borderRadius: 2,
+                            overflow: "hidden",
                           }}
-                        />
+                        >
+                          <div
+                            style={{
+                              width: `${clamp(Number(t.progress) || 0, 0, 100)}%`,
+                              height: "100%",
+                              background: color,
+                            }}
+                          />
+                        </div>
                       )}
                     </React.Fragment>
                   );
