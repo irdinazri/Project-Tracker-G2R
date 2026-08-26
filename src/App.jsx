@@ -2058,7 +2058,7 @@ const PR = {
 // Per-site identification lives in the Schedule table below (which already
 // shows site as a sub-line under each task name) — this chart is the shape
 // of the whole schedule, not a per-site index.
-function PrintGanttChart({ tasks, projectStart, projectEnd }) {
+function PrintGanttChartSinglePage({ tasks, projectStart, projectEnd }) {
   if (!tasks || tasks.length === 0) return null;
 
   const candidates = [...tasks.map((t) => t.start), ...tasks.map((t) => t.end), projectStart, projectEnd].filter(Boolean);
@@ -2384,6 +2384,294 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
         </span>
         <span style={{ color: PR.faint }}>Day numbers along the top are day-of-month. See Schedule below for exact dates and site.</span>
       </div>
+    </div>
+  );
+}
+
+// One page's worth of a long project's timeline — same visual language as
+// the single-page chart, but its whole date scale (totalDays, pctForDate,
+// day ticks, month bands) is scoped to just this window's date range
+// instead of the whole project. Every page shows the SAME set of task-name
+// rows (groupOrder), even ones with nothing scheduled on this particular
+// page, so the row structure stays aligned across pages the way a reader
+// following one task down the page expects. A task's bar is clipped to
+// this window and loses its border on whichever side it continues past —
+// so it reads as flowing onto the next page rather than stopping abruptly.
+//
+// One known simplification versus the single-page chart: this doesn't
+// render the green/red "completed late" split for overrun tasks — only
+// plain status color. Adding that here means clipping the plannedEnd
+// split point per-window too, which is real additional complexity on top
+// of an already-large new component; simpler to ship this working and
+// correct first than to risk a bug chasing full parity in the same pass.
+function PrintGanttWindow({ tasks, groupOrder, window, pageLabel, isFirst }) {
+  const { start: winStart, end: winEnd } = window;
+  const winEndExclusive = addDaysStr(winEnd, 1);
+  const totalDays = Math.max(1, daysBetween(winStart, winEndExclusive));
+  const pctForDate = (d) => {
+    if (!d) return 0;
+    const c = d < winStart ? winStart : d > winEndExclusive ? winEndExclusive : d;
+    return clamp((daysBetween(winStart, c) / totalDays) * 100, 0, 100);
+  };
+
+  const statusColor = {
+    "Not Started": PR.faint,
+    "In Progress": "#0F766E",
+    Delayed: PR.red,
+    Completed: PR.green,
+  };
+
+  const tickIntervalDays = totalDays <= 45 ? 1 : totalDays <= 90 ? 2 : 5;
+  const dayTicks = [];
+  {
+    let cursor = winStart;
+    let guard = 0;
+    while (cursor <= winEnd && guard < 60) {
+      guard++;
+      dayTicks.push({
+        pct: ((daysBetween(winStart, cursor) + 0.5) / totalDays) * 100,
+        label: String(new Date(cursor).getDate()),
+      });
+      cursor = addDaysStr(cursor, tickIntervalDays);
+    }
+  }
+
+  const monthBands = [];
+  {
+    let cursor = winStart;
+    let guard = 0;
+    while (cursor <= winEnd && guard < 10) {
+      guard++;
+      const d = new Date(cursor);
+      const label = d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+      monthBands.push({ label, leftPct: (daysBetween(winStart, cursor) / totalDays) * 100 });
+      const firstOfNextMonth = new Date(d.getFullYear(), d.getMonth() + 1, 1).toISOString().slice(0, 10);
+      cursor = firstOfNextMonth < winEndExclusive ? firstOfNextMonth : winEndExclusive;
+    }
+  }
+
+  const LABEL_W = 215;
+  const LANE_H = 12;
+  const LANE_GAP = 2;
+
+  const groups = groupOrder.map((name) => {
+    const groupTasks = tasks.filter((t) => (t.name || "Untitled task") === name);
+    const overlapping = groupTasks.filter((t) => (t.end || t.start) >= winStart && t.start <= winEnd);
+    const withPct = overlapping.map((t) => {
+      const taskEnd = t.end || t.start;
+      const clippedStart = t.start < winStart ? winStart : t.start;
+      const clippedEnd = taskEnd > winEnd ? winEnd : taskEnd;
+      const startPct = pctForDate(clippedStart);
+      const rawEndPct = pctForDate(addDaysStr(clippedEnd, 1));
+      const endPct = Math.max(rawEndPct, startPct + (100 / totalDays) * 0.6);
+      return {
+        task: t,
+        startPct,
+        endPct,
+        continuesFromPrev: t.start < winStart,
+        continuesToNext: taskEnd > winEnd,
+      };
+    });
+    const sorted = [...withPct].sort((a, b) => a.startPct - b.startPct);
+    const laneEnds = [];
+    const placed = sorted.map((item) => {
+      let lane = laneEnds.findIndex((end) => end < item.startPct);
+      if (lane === -1) {
+        lane = laneEnds.length;
+        laneEnds.push(item.endPct);
+      } else {
+        laneEnds[lane] = item.endPct;
+      }
+      return { ...item, lane };
+    });
+    return { name, items: placed, laneCount: Math.max(1, laneEnds.length) };
+  });
+
+  return (
+    <div style={{ marginBottom: 20, breakInside: "avoid", breakBefore: isFirst ? "auto" : "page" }}>
+      <h2 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: PR.dim, marginBottom: 6 }}>
+        Timeline — {pageLabel}
+      </h2>
+      <div style={{ border: `1px solid ${PR.border}`, borderRadius: 4, overflow: "hidden" }}>
+        <div style={{ display: "flex", borderBottom: `1px solid ${PR.border}`, background: PR.headBg }}>
+          <div style={{ width: LABEL_W, flexShrink: 0, borderRight: `1px solid ${PR.border}` }} />
+          <div style={{ flex: 1, position: "relative", height: 14 }}>
+            {monthBands.map((b, i) => (
+              <React.Fragment key={i}>
+                {i > 0 && (
+                  <div style={{ position: "absolute", left: `${b.leftPct}%`, top: 0, bottom: 0, width: 1, background: PR.border }} />
+                )}
+                <div
+                  style={{
+                    position: "absolute",
+                    left: `${b.leftPct}%`,
+                    marginLeft: i > 0 ? 3 : 0,
+                    fontSize: 8,
+                    fontWeight: 600,
+                    color: PR.dim,
+                    lineHeight: "14px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {b.label}
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", borderBottom: `1px solid ${PR.border}`, background: PR.headBg }}>
+          <div style={{ width: LABEL_W, flexShrink: 0, borderRight: `1px solid ${PR.border}` }} />
+          <div style={{ flex: 1, position: "relative", height: 14 }}>
+            {dayTicks.map((tk, i) => (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  left: `${tk.pct}%`,
+                  transform: "translateX(-50%)",
+                  fontSize: 7.5,
+                  color: PR.faint,
+                  lineHeight: "14px",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {tk.label}
+              </div>
+            ))}
+          </div>
+        </div>
+        {groups.map((g) => {
+          const rowHeight = g.laneCount * LANE_H + (g.laneCount - 1) * LANE_GAP + 6;
+          return (
+            <div key={g.name} style={{ display: "flex", borderBottom: `1px solid ${PR.border}` }}>
+              <div
+                style={{
+                  width: LABEL_W,
+                  flexShrink: 0,
+                  borderRight: `1px solid ${PR.border}`,
+                  padding: "4px 6px",
+                  fontSize: 9.5,
+                  color: PR.text,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                {g.name}
+              </div>
+              <div style={{ flex: 1, position: "relative", height: rowHeight }}>
+                {g.items.map(({ task: t, startPct, endPct, lane, continuesFromPrev, continuesToNext }) => {
+                  const color = statusColor[t.status] || PR.faint;
+                  const top = 3 + lane * (LANE_H + LANE_GAP);
+                  return (
+                    <div
+                      key={t.id}
+                      style={{
+                        position: "absolute",
+                        left: `${startPct}%`,
+                        width: `${Math.max(0, endPct - startPct)}%`,
+                        top,
+                        height: LANE_H - 2,
+                        background: `${color}33`,
+                        borderTop: `1px solid ${color}`,
+                        borderBottom: `1px solid ${color}`,
+                        borderLeft: continuesFromPrev ? "none" : `1px solid ${color}`,
+                        borderRight: continuesToNext ? "none" : `1px solid ${color}`,
+                        borderRadius: continuesFromPrev || continuesToNext ? 0 : 2,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${clamp(Number(t.progress) || 0, 0, 100)}%`,
+                          height: "100%",
+                          background: color,
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Dispatches between the two chart rendering modes. Short and medium
+// projects use the existing single-page chart, completely untouched.
+// Projects long enough that a single page can't show daily-resolution
+// detail without labels colliding switch to a paginated view instead —
+// same idea as how MS Project itself paginates a printed Gantt: fixed-
+// width pages, the full task list repeated on each one, task bars clipped
+// and continued across page boundaries.
+function PrintGanttChart({ tasks, projectStart, projectEnd }) {
+  if (!tasks || tasks.length === 0) return null;
+
+  const candidates = [...tasks.map((t) => t.start), ...tasks.map((t) => t.end), projectStart, projectEnd].filter(Boolean);
+  let rangeStartStr = candidates.length ? candidates.reduce((a, b) => (a < b ? a : b)) : todayStr();
+  let rangeEndStrRaw = candidates.length ? candidates.reduce((a, b) => (a > b ? a : b)) : addDaysStr(todayStr(), 30);
+  if (rangeStartStr > rangeEndStrRaw) {
+    const tmp = rangeStartStr;
+    rangeStartStr = rangeEndStrRaw;
+    rangeEndStrRaw = tmp;
+  }
+  const rawSpan = Math.max(1, daysBetween(rangeStartStr, rangeEndStrRaw));
+  const pad = Math.max(1, Math.round(rawSpan * 0.03));
+  rangeStartStr = addDaysStr(rangeStartStr, -pad);
+  const rangeEndStr = addDaysStr(rangeEndStrRaw, pad);
+  const totalDays = Math.max(1, daysBetween(rangeStartStr, rangeEndStr));
+
+  const LONG_PROJECT_THRESHOLD_DAYS = 130;
+  if (totalDays <= LONG_PROJECT_THRESHOLD_DAYS) {
+    return <PrintGanttChartSinglePage tasks={tasks} projectStart={projectStart} projectEnd={projectEnd} />;
+  }
+
+  const WINDOW_DAYS = 49; // ~7 weeks per page, matching the reference layout
+  const windows = [];
+  {
+    let cursor = rangeStartStr;
+    while (cursor < rangeEndStr) {
+      const windowEndExclusive = addDaysStr(cursor, WINDOW_DAYS);
+      const windowEnd = windowEndExclusive < rangeEndStr ? addDaysStr(windowEndExclusive, -1) : rangeEndStr;
+      windows.push({ start: cursor, end: windowEnd });
+      cursor = windowEndExclusive;
+    }
+  }
+  // Skip pages with nothing scheduled on them at all — a long project can
+  // have real gaps between phases, and there's no reason to print a blank
+  // page for one.
+  const usedWindows = windows.filter((w) => tasks.some((t) => (t.end || t.start) >= w.start && t.start <= w.end));
+
+  const groupOrder = [];
+  {
+    const seen = new Set();
+    tasks.forEach((t) => {
+      const key = t.name || "Untitled task";
+      if (!seen.has(key)) {
+        seen.add(key);
+        groupOrder.push(key);
+      }
+    });
+  }
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <p style={{ fontSize: 9.5, color: PR.faint, marginBottom: 8 }}>
+        This project spans {Math.round(daysBetween(rangeStartStr, rangeEndStr))} days — shown across {usedWindows.length}{" "}
+        pages, about {WINDOW_DAYS} days each.
+      </p>
+      {usedWindows.map((w, i) => (
+        <PrintGanttWindow
+          key={i}
+          tasks={tasks}
+          groupOrder={groupOrder}
+          window={w}
+          isFirst={i === 0}
+          pageLabel={`${fmtDate(w.start)} – ${fmtDate(w.end)} (page ${i + 1} of ${usedWindows.length})`}
+        />
+      ))}
     </div>
   );
 }
