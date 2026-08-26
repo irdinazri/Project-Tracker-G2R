@@ -2419,8 +2419,14 @@ function PrintReport({ project }) {
   const tasks = project.tasks || [];
   const costs = project.costs || [];
   const issues = project.issues || [];
+  // Once a project has an actual finish date, Duration should reflect
+  // how long it really took, not just the originally planned span —
+  // otherwise a project that ran late still shows its ORIGINAL target
+  // duration, silently contradicting the Actual finish row sitting right
+  // above it.
+  const finishForDuration = project.actualFinishDate || project.endDate;
   const duration =
-    project.startDate && project.endDate ? Math.round(daysBetween(project.startDate, project.endDate)) : null;
+    project.startDate && finishForDuration ? Math.round(daysBetween(project.startDate, finishForDuration)) : null;
 
   // Plain object, not memoized — PrintReport only renders once when the
   // print dialog is triggered, so there's no repeated-render cost to guard
@@ -3317,7 +3323,11 @@ function ProjectDetailView({
 
 function OverviewTab({ project, m }) {
   const { canSeeFinancials } = usePermissions();
-  const duration = project.startDate && project.endDate ? Math.round(daysBetween(project.startDate, project.endDate)) : null;
+  // Same reasoning as the print report's duration — once a project has an
+  // actual finish date, Duration should reflect real elapsed time, not
+  // just the original target span.
+  const finishForDuration = project.actualFinishDate || project.endDate;
+  const duration = project.startDate && finishForDuration ? Math.round(daysBetween(project.startDate, finishForDuration)) : null;
 
   return (
     <div className="flex flex-col gap-5">
