@@ -516,6 +516,29 @@ function makeLogEntry(role, subconName, summary) {
 // all three historical shapes this feature has gone through — current
 // phase-nested payments[][], the flat payments[] from before phases
 // existed, and the original fixed payment1/payment2 fields.
+// Groups tasks by site, ordered to match the project's own site list (the
+// order the Coordinator entered them in), with any site name used on a
+// task but missing from that list appended after, and untagged tasks
+// bucketed last under "". Shared by the live Gantt tab and the print
+// report so the two can't silently drift into different groupings/orders.
+function groupTasksBySite(tasks, siteNames) {
+  if (!siteNames || siteNames.length === 0) return null;
+  const bySite = {};
+  tasks.forEach((t) => {
+    const key = t.site || "";
+    (bySite[key] = bySite[key] || []).push(t);
+  });
+  const ordered = [];
+  siteNames.forEach((s) => {
+    if (bySite[s]) ordered.push({ site: s, tasks: bySite[s] });
+  });
+  Object.keys(bySite)
+    .filter((k) => k && !siteNames.includes(k))
+    .forEach((k) => ordered.push({ site: k, tasks: bySite[k] }));
+  if (bySite[""]) ordered.push({ site: "", tasks: bySite[""] });
+  return ordered;
+}
+
 function getPaymentPhaseBreakdown(c) {
   const split = c.paymentTerms ? PAYMENT_TERMS_SPLITS[c.paymentTerms] : null;
   if (!split) return null;
@@ -2115,7 +2138,11 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
       guard++;
       dayTicks.push({
         dateStr: cursor,
-        pct: pctForDate(cursor),
+        // The midpoint between where this day starts and where it ends
+        // (= where the next day starts) — pctForDate alone only gives the
+        // day's starting edge, which left every label sitting a half-day
+        // too far left of the actual box it was supposed to label.
+        pct: (pctForDate(cursor) + pctForDate(addDaysStr(cursor, 1))) / 2,
         label: String(new Date(cursor).getDate()),
       });
       cursor = addDaysStr(cursor, tickIntervalDays);
@@ -2220,7 +2247,7 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
                 style={{
                   position: "absolute",
                   left: `${tk.pct}%`,
-                  transform: i === 0 ? "none" : i === dayTicks.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
+                  transform: "translateX(-50%)",
                   fontSize: 7.5,
                   color: PR.faint,
                   lineHeight: "14px",
@@ -2529,27 +2556,77 @@ function PrintReport({ project }) {
               </tr>
             </thead>
             <tbody>
-              {tasks.map((t) => {
-                const delayComment = taskDelayComment(t, issuesByTaskId);
-                return (
-                <tr key={t.id}>
-                  <td style={td}>
-                    {t.name}
-                    {t.site && <div style={{ fontSize: 10.5, color: PR.faint, marginTop: 2 }}>{t.site}</div>}
-                    {delayComment && (
-                      <div style={{ fontSize: 10.5, color: PR.red, marginTop: 2 }}>
-                        <strong>Delay note:</strong> {delayComment}
-                      </div>
-                    )}
-                  </td>
-                  <td style={td}>{t.owner || "—"}</td>
-                  <td style={td}>{fmtDate(t.start)}</td>
-                  <td style={td}>{fmtDate(t.end)}</td>
-                  <td style={td}>{t.status}</td>
-                  <td style={td}>{t.progress || 0}%</td>
-                </tr>
-                );
-              })}
+              {(() => {
+                const siteGroups = groupTasksBySite(tasks, project.siteNames || []);
+                const renderTaskRow = (t) => {
+                  const delayComment = taskDelayComment(t, issuesByTaskId);
+                  return (
+                    <tr key={t.id}>
+                      <td style={td}>
+                        {t.name}
+                        {delayComment && (
+                          <div style={{ fontSize: 10.5, color: PR.red, marginTop: 2 }}>
+                            <strong>Delay note:</strong> {delayComment}
+                          </div>
+                        )}
+                      </td>
+                      <td style={td}>{t.owner || "—"}</td>
+                      <td style={td}>{fmtDate(t.start)}</td>
+                      <td style={td}>{fmtDate(t.end)}</td>
+                      <td style={td}>{t.status}</td>
+                      <td style={td}>{t.progress || 0}%</td>
+                    </tr>
+                  );
+                };
+
+                if (!siteGroups) {
+                  // No defined site list on this project — same flat
+                  // rendering as before, just with the site subtitle still
+                  // shown per row since there's no header to convey it.
+                  return tasks.map((t) => {
+                    const delayComment = taskDelayComment(t, issuesByTaskId);
+                    return (
+                      <tr key={t.id}>
+                        <td style={td}>
+                          {t.name}
+                          {t.site && <div style={{ fontSize: 10.5, color: PR.faint, marginTop: 2 }}>{t.site}</div>}
+                          {delayComment && (
+                            <div style={{ fontSize: 10.5, color: PR.red, marginTop: 2 }}>
+                              <strong>Delay note:</strong> {delayComment}
+                            </div>
+                          )}
+                        </td>
+                        <td style={td}>{t.owner || "—"}</td>
+                        <td style={td}>{fmtDate(t.start)}</td>
+                        <td style={td}>{fmtDate(t.end)}</td>
+                        <td style={td}>{t.status}</td>
+                        <td style={td}>{t.progress || 0}%</td>
+                      </tr>
+                    );
+                  });
+                }
+
+                return siteGroups.map((g) => (
+                  <React.Fragment key={g.site || "unassigned"}>
+                    <tr>
+                      <td
+                        colSpan={6}
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 600,
+                          color: PR.dim,
+                          background: PR.headBg,
+                          padding: "5px 8px",
+                          borderBottom: `1px solid ${PR.border}`,
+                        }}
+                      >
+                        {g.site || "No site assigned"} — {g.tasks.length} task{g.tasks.length === 1 ? "" : "s"}
+                      </td>
+                    </tr>
+                    {g.tasks.map((t) => renderTaskRow(t))}
+                  </React.Fragment>
+                ));
+              })()}
             </tbody>
           </table>
         </div>
@@ -3341,23 +3418,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
       return next;
     });
 
-  const siteGroups = useMemo(() => {
-    if (siteNames.length === 0) return null;
-    const bySite = {};
-    tasks.forEach((t) => {
-      const key = t.site || "";
-      (bySite[key] = bySite[key] || []).push(t);
-    });
-    const ordered = [];
-    siteNames.forEach((s) => {
-      if (bySite[s]) ordered.push({ site: s, tasks: bySite[s] });
-    });
-    Object.keys(bySite)
-      .filter((k) => k && !siteNames.includes(k))
-      .forEach((k) => ordered.push({ site: k, tasks: bySite[k] }));
-    if (bySite[""]) ordered.push({ site: "", tasks: bySite[""] });
-    return ordered;
-  }, [tasks, siteNames]);
+  const siteGroups = useMemo(() => groupTasksBySite(tasks, siteNames), [tasks, siteNames]);
 
   const renderTaskRow = (t, showSite) => {
     // Each task checks overdue against its own grace window (day vs night
