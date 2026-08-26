@@ -2073,11 +2073,18 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
   const pad = Math.max(1, Math.round(rawSpan * 0.03));
   rangeStartStr = addDaysStr(rangeStartStr, -pad);
   const rangeEndStr = addDaysStr(rangeEndStrRaw, pad);
-  const totalDays = Math.max(1, daysBetween(rangeStartStr, rangeEndStr));
+  // totalDays and pctForDate's boundary both extend one day past
+  // rangeEndStr — the visible range needs a FULL slot reserved for the
+  // last day too, not just a single point at exactly 100%. Without this,
+  // anything needing to reach "the end of the last visible day" (a tick's
+  // midpoint, a task bar's right edge) has nowhere left to go and
+  // collapses onto the 100% mark, overlapping whatever else is there.
+  const rangeEndExclusive = addDaysStr(rangeEndStr, 1);
+  const totalDays = Math.max(1, daysBetween(rangeStartStr, rangeEndExclusive));
 
   const pctForDate = (d) => {
     if (!d) return 0;
-    const clamped = d < rangeStartStr ? rangeStartStr : d > rangeEndStr ? rangeEndStr : d;
+    const clamped = d < rangeStartStr ? rangeStartStr : d > rangeEndExclusive ? rangeEndExclusive : d;
     return clamp((daysBetween(rangeStartStr, clamped) / totalDays) * 100, 0, 100);
   };
 
@@ -2138,11 +2145,10 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
       guard++;
       dayTicks.push({
         dateStr: cursor,
-        // The midpoint between where this day starts and where it ends
-        // (= where the next day starts) — pctForDate alone only gives the
-        // day's starting edge, which left every label sitting a half-day
-        // too far left of the actual box it was supposed to label.
-        pct: (pctForDate(cursor) + pctForDate(addDaysStr(cursor, 1))) / 2,
+        // Direct from this day's own offset within the range, not via
+        // pctForDate twice — simpler, and doesn't depend on the range's
+        // exclusive boundary trick working out for every tick.
+        pct: ((daysBetween(rangeStartStr, cursor) + 0.5) / totalDays) * 100,
         label: String(new Date(cursor).getDate()),
       });
       cursor = addDaysStr(cursor, tickIntervalDays);
