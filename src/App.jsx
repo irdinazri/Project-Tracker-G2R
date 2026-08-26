@@ -2472,6 +2472,16 @@ function PrintReport({ project }) {
             ["Status", project.status || "—"],
             ["Target start", fmtDate(project.startDate)],
             ["Target finish", fmtDate(project.endDate)],
+            ...(project.actualFinishDate
+              ? [[
+                  "Actual finish",
+                  `${fmtDate(project.actualFinishDate)}${
+                    project.endDate && project.actualFinishDate > project.endDate
+                      ? ` (${Math.max(1, Math.round(daysBetween(project.endDate, project.actualFinishDate)))}d late)`
+                      : ""
+                  }`,
+                ]]
+              : []),
             ["Duration", duration != null ? `${duration} days` : "—"],
             ["Completion", fmtPct(m.completion)],
           ].map(([k, v]) => (
@@ -3253,6 +3263,16 @@ function OverviewTab({ project, m }) {
               ["Status", project.status || "—"],
               ["Target start", fmtDate(project.startDate)],
               ["Target finish", fmtDate(project.endDate)],
+              ...(project.actualFinishDate
+                ? [[
+                    "Actual finish",
+                    `${fmtDate(project.actualFinishDate)}${
+                      project.endDate && project.actualFinishDate > project.endDate
+                        ? ` (${Math.max(1, Math.round(daysBetween(project.endDate, project.actualFinishDate)))}d late)`
+                        : ""
+                    }`,
+                  ]]
+                : []),
               ["Duration", duration != null ? `${duration} days` : "—"],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between gap-3">
@@ -4250,12 +4270,32 @@ function ProjectModal({ data, knownSubcons, onClose, onSave }) {
           startDate: todayStr(),
           endDate: "",
           status: "Not Started",
+          actualFinishDate: "",
           contractValue: "",
           sitesText: "",
           worksWeekends: false,
         }
   );
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  // Mirrors the same auto-fill-but-editable pattern already used for
+  // resolving an issue: the moment status flips to Completed, default the
+  // actual finish date to today — a reasonable starting point — but leave
+  // it as a normal editable field so the Coordinator can correct it to the
+  // real completion date if that's different from whenever they got
+  // around to updating the status. Reverting out of Completed clears it,
+  // same as plannedEnd does elsewhere when a task leaves Delayed.
+  const setStatus = (e) => {
+    const val = e.target.value;
+    setF((prev) => {
+      const next = { ...prev, status: val };
+      if (val === "Completed" && !prev.actualFinishDate) {
+        next.actualFinishDate = todayStr();
+      } else if (val !== "Completed") {
+        next.actualFinishDate = "";
+      }
+      return next;
+    });
+  };
   const handleSubmit = () => {
     const { sitesText, ...rest } = f;
     onSave({
@@ -4303,7 +4343,7 @@ function ProjectModal({ data, knownSubcons, onClose, onSave }) {
           </datalist>
         </Field>
         <Field label="Status">
-          <Select value={f.status} onChange={set("status")}>
+          <Select value={f.status} onChange={setStatus}>
             {PROJECT_STATUSES.map((s) => (
               <option key={s}>{s}</option>
             ))}
@@ -4315,10 +4355,20 @@ function ProjectModal({ data, knownSubcons, onClose, onSave }) {
         <Field label="Target finish">
           <TextInput type="date" value={f.endDate} onChange={set("endDate")} />
         </Field>
+        {f.status === "Completed" && (
+          <Field label="Actual finish">
+            <TextInput type="date" value={f.actualFinishDate || ""} onChange={set("actualFinishDate")} />
+          </Field>
+        )}
         <Field label="Contract value (RM)">
           <TextInput type="number" min="0" step="0.01" value={f.contractValue} onChange={set("contractValue")} placeholder="0.00" />
         </Field>
       </div>
+      {f.status === "Completed" && f.actualFinishDate && f.endDate && f.actualFinishDate > f.endDate && (
+        <p className="text-xs leading-relaxed" style={{ color: T.amber }}>
+          Finished {Math.max(1, Math.round(daysBetween(f.endDate, f.actualFinishDate)))}d after the target finish date.
+        </p>
+      )}
       <label className="flex items-center gap-2 text-sm" style={{ color: T.text }}>
         <input
           type="checkbox"
