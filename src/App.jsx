@@ -574,18 +574,21 @@ function buildCostChangeLog(role, subconName, oldCost, newData, isNewEntry) {
         const oldRaw = (oldPayments[phaseIdx] || [])[payIdx];
         const oldNum = oldRaw === "" || oldRaw === undefined || oldRaw === null ? null : Number(oldRaw);
         const newNum = val === "" || val === undefined || val === null ? null : Number(val);
-        if (oldNum === newNum || newNum === null) return;
+        // Only a genuine non-change is skipped now — clearing a box that
+        // had a real value IS a meaningful change (removing a recorded
+        // payment) and needs its own log line, not silence.
+        if (oldNum === newNum) return;
         const boxLabel = PAYMENT_ORDINAL_WORDS[payIdx] ? `${PAYMENT_ORDINAL_WORDS[payIdx]} payment` : `Payment ${payIdx + 1}`;
         const fullLabel = phaseLabel ? `${phaseLabel}'s ${boxLabel.toLowerCase()}` : boxLabel;
-        entries.push(
-          makeLogEntry(
-            role,
-            subconName,
-            oldNum === null
-              ? `${fullLabel} recorded for "${label}": RM ${fmtRMValue(newNum)}`
-              : `${fullLabel} for "${label}" updated: RM ${fmtRMValue(oldNum)} → RM ${fmtRMValue(newNum)}`
-          )
-        );
+        let summary;
+        if (oldNum === null) {
+          summary = `${fullLabel} recorded for "${label}": RM ${fmtRMValue(newNum)}`;
+        } else if (newNum === null) {
+          summary = `${fullLabel} removed for "${label}" (was RM ${fmtRMValue(oldNum)})`;
+        } else {
+          summary = `${fullLabel} for "${label}" updated: RM ${fmtRMValue(oldNum)} → RM ${fmtRMValue(newNum)}`;
+        }
+        entries.push(makeLogEntry(role, subconName, summary));
       });
     });
   }
