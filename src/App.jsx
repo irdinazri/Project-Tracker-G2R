@@ -2401,6 +2401,17 @@ function PrintGanttChartSinglePage({ tasks, projectStart, projectEnd }) {
         </span>
         <span style={{ color: PR.faint }}>Day numbers along the top are day-of-month. See Schedule below for exact dates and site.</span>
       </div>
+      <div style={{ display: "flex", gap: 12, marginTop: 3, fontSize: 9, color: PR.dim, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "inline-block", width: 2, height: 10, background: "#0F766E" }} /> Target start
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "inline-block", width: 2, height: 10, background: PR.red }} /> Target finish
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "inline-block", width: 2, height: 10, background: PR.amber }} /> Today
+        </span>
+      </div>
     </div>
   );
 }
@@ -2421,7 +2432,7 @@ function PrintGanttChartSinglePage({ tasks, projectStart, projectEnd }) {
 // split point per-window too, which is real additional complexity on top
 // of an already-large new component; simpler to ship this working and
 // correct first than to risk a bug chasing full parity in the same pass.
-function PrintGanttWindow({ tasks, groupOrder, window, pageLabel, isFirst }) {
+function PrintGanttWindow({ tasks, groupOrder, window, pageLabel, isFirst, projectStart, projectEnd }) {
   const { start: winStart, end: winEnd } = window;
   const winEndExclusive = addDaysStr(winEnd, 1);
   const totalDays = Math.max(1, daysBetween(winStart, winEndExclusive));
@@ -2430,6 +2441,14 @@ function PrintGanttWindow({ tasks, groupOrder, window, pageLabel, isFirst }) {
     const c = d < winStart ? winStart : d > winEndExclusive ? winEndExclusive : d;
     return clamp((daysBetween(winStart, c) / totalDays) * 100, 0, 100);
   };
+
+  // Same three markers as the single-page chart, each only drawn on
+  // whichever page its date actually falls on — a long project's target
+  // finish date lands on exactly one page, not all of them.
+  const todayVal = todayStr();
+  const todayPct = todayVal >= winStart && todayVal <= winEnd ? pctForDate(todayVal) : null;
+  const targetStartPct = projectStart && projectStart >= winStart && projectStart <= winEnd ? pctForDate(projectStart) : null;
+  const targetEndPct = projectEnd && projectEnd >= winStart && projectEnd <= winEnd ? pctForDate(addDaysStr(projectEnd, 1)) : null;
 
   const statusColor = {
     "Not Started": PR.faint,
@@ -2575,6 +2594,15 @@ function PrintGanttWindow({ tasks, groupOrder, window, pageLabel, isFirst }) {
                 {g.name}
               </div>
               <div style={{ flex: 1, position: "relative", height: rowHeight }}>
+                {todayPct != null && (
+                  <div style={{ position: "absolute", left: `${todayPct}%`, top: 0, bottom: 0, width: 1, background: PR.amber }} />
+                )}
+                {targetStartPct != null && (
+                  <div style={{ position: "absolute", left: `${targetStartPct}%`, top: 0, bottom: 0, width: 1, background: "#0F766E" }} />
+                )}
+                {targetEndPct != null && (
+                  <div style={{ position: "absolute", left: `${targetEndPct}%`, top: 0, bottom: 0, width: 1, background: PR.red }} />
+                )}
                 {g.items.map(({ task: t, startPct, endPct, lane, continuesFromPrev, continuesToNext }) => {
                   const color = statusColor[t.status] || PR.faint;
                   const top = 3 + lane * (LANE_H + LANE_GAP);
@@ -2674,10 +2702,33 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
 
   return (
     <div style={{ marginBottom: 20 }}>
-      <p style={{ fontSize: 9.5, color: PR.faint, marginBottom: 8 }}>
+      <p style={{ fontSize: 9.5, color: PR.faint, marginBottom: 4 }}>
         This project spans {Math.round(daysBetween(rangeStartStr, rangeEndStr))} days — shown across {usedWindows.length}{" "}
         pages, about {WINDOW_DAYS} days each.
       </p>
+      <div style={{ display: "flex", gap: 12, marginBottom: 10, fontSize: 9, color: PR.dim, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: PR.faint, fontSize: 12, lineHeight: 1 }}>●</span> Not Started
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: "#0F766E", fontSize: 12, lineHeight: 1 }}>●</span> In Progress
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: PR.red, fontSize: 12, lineHeight: 1 }}>●</span> Delayed
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: PR.green, fontSize: 12, lineHeight: 1 }}>●</span> Completed
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "inline-block", width: 2, height: 10, background: "#0F766E" }} /> Target start
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "inline-block", width: 2, height: 10, background: PR.red }} /> Target finish
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span style={{ display: "inline-block", width: 2, height: 10, background: PR.amber }} /> Today
+        </span>
+      </div>
       {usedWindows.map((w, i) => (
         <PrintGanttWindow
           key={i}
@@ -2685,6 +2736,8 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
           groupOrder={groupOrder}
           window={w}
           isFirst={i === 0}
+          projectStart={projectStart}
+          projectEnd={projectEnd}
           pageLabel={`${fmtDate(w.start)} – ${fmtDate(w.end)} (page ${i + 1} of ${usedWindows.length})`}
         />
       ))}
