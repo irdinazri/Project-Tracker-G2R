@@ -515,6 +515,84 @@ function makeLogEntry(role, subconName, summary) {
   };
 }
 
+// Diffs a cost entry save (old data vs what's about to be saved) and
+// returns one log entry per actual change — new entry creation, any
+// tracked field edit, each individual payment box, and approval status.
+// Runs once at save time, not per keystroke, matching how approval
+// changes were already tracked. A brand-new entry logs its starting
+// values instead of diffing against nothing.
+function buildCostChangeLog(role, subconName, oldCost, newData, isNewEntry) {
+  const entries = [];
+  const label = newData.description || newData.category || "cost entry";
+
+  if (isNewEntry) {
+    entries.push(
+      makeLogEntry(
+        role,
+        subconName,
+        `Created cost entry "${label}": ${newData.category || "—"}, Amount RM ${fmtRMValue(newData.budgeted)}${
+          newData.paymentTerms ? `, ${newData.paymentTerms} terms` : ""
+        }`
+      )
+    );
+    return entries;
+  }
+
+  const FIELDS = [
+    ["category", "Category"],
+    ["description", "Description"],
+    ["supplier", "Supplier"],
+    ["budgeted", "Amount"],
+    ["method", "Payment method"],
+    ["paymentTerms", "Payment terms"],
+  ];
+  FIELDS.forEach(([key, fieldLabel]) => {
+    const oldVal = oldCost[key];
+    const newVal = newData[key];
+    if (String(oldVal ?? "") === String(newVal ?? "")) return;
+    const isAmount = key === "budgeted";
+    const oldDisplay = isAmount ? `RM ${fmtRMValue(oldVal)}` : oldVal || "—";
+    const newDisplay = isAmount ? `RM ${fmtRMValue(newVal)}` : newVal || "—";
+    entries.push(makeLogEntry(role, subconName, `${fieldLabel} for "${label}" changed: ${oldDisplay} → ${newDisplay}`));
+  });
+
+  if (oldCost.approval !== newData.approval) {
+    entries.push(makeLogEntry(role, subconName, `Approval for "${label}" changed: ${oldCost.approval} → ${newData.approval}`));
+  }
+
+  if (newData.paymentTerms && Array.isArray(newData.payments)) {
+    const oldPayments = Array.isArray(oldCost.payments) && Array.isArray(oldCost.payments[0]) ? oldCost.payments : [];
+    const multiPhase = newData.payments.length > 1;
+    newData.payments.forEach((phase, phaseIdx) => {
+      // Box numbering resets per phase (First payment, Second payment...
+      // within EACH phase), matching the actual form — so the phase name
+      // has to be included here too, or "First payment" is ambiguous
+      // between phase 1's first box and phase 2's first box once it's
+      // flattened into a single log line with no visual grouping.
+      const phaseLabel = multiPhase ? (phaseIdx === 0 ? "First phase" : "Second phase") : null;
+      (phase || []).forEach((val, payIdx) => {
+        const oldRaw = (oldPayments[phaseIdx] || [])[payIdx];
+        const oldNum = oldRaw === "" || oldRaw === undefined || oldRaw === null ? null : Number(oldRaw);
+        const newNum = val === "" || val === undefined || val === null ? null : Number(val);
+        if (oldNum === newNum || newNum === null) return;
+        const boxLabel = PAYMENT_ORDINAL_WORDS[payIdx] ? `${PAYMENT_ORDINAL_WORDS[payIdx]} payment` : `Payment ${payIdx + 1}`;
+        const fullLabel = phaseLabel ? `${phaseLabel}'s ${boxLabel.toLowerCase()}` : boxLabel;
+        entries.push(
+          makeLogEntry(
+            role,
+            subconName,
+            oldNum === null
+              ? `${fullLabel} recorded for "${label}": RM ${fmtRMValue(newNum)}`
+              : `${fullLabel} for "${label}" updated: RM ${fmtRMValue(oldNum)} → RM ${fmtRMValue(newNum)}`
+          )
+        );
+      });
+    });
+  }
+
+  return entries;
+}
+
 // One-line summary of a cost entry's payment terms, e.g. "40-60 · RM4,000.00 + RM6,000.00"
 // or "100 · RM25,000.00". Returns null if no terms structure is set (older
 // entries, or ones that never used the terms breakdown), so callers can
@@ -1870,7 +1948,20 @@ export default function App() {
                 }}
                 onAddCost={() => setModal({ type: "cost" })}
                 onEditCost={(c) => setModal({ type: "cost", data: c })}
-                onDeleteCost={(id) => mutateList("costs", (l) => l.filter((x) => x.id !== id))}
+                onDeleteCost={(id) => {
+                  const toDelete = (selected.costs || []).find((c) => c.id === id);
+                  const entry = makeLogEntry(
+                    role,
+                    subconName,
+                    `Deleted cost entry "${toDelete?.description || toDelete?.category || "cost entry"}" (RM ${fmtRMValue(
+                      toDelete?.budgeted
+                    )})`
+                  );
+                  updateProject(selected.id, {
+                    costs: (selected.costs || []).filter((x) => x.id !== id),
+                    activityLog: [...(selected.activityLog || []), entry],
+                  });
+                }}
                 onAddIssue={(site) => setModal({ type: "issue", presetSite: site })}
                 onEditIssue={(i) => setModal({ type: "issue", data: i })}
                 onDeleteIssue={(id) => mutateList("issues", (l) => l.filter((x) => x.id !== id))}
@@ -1941,24 +2032,14 @@ export default function App() {
           onClose={() => setModal(null)}
           onSave={(data) => {
             const isEdit = !!modal.data;
-            const oldApproval = isEdit ? modal.data.approval : null;
-            const newApproval = data.approval;
-            const approvalChanged = isEdit && oldApproval !== newApproval;
 
             const nextCosts = isEdit
               ? (selected.costs || []).map((c) => (c.id === modal.data.id ? { ...c, ...data } : c))
               : [...(selected.costs || []), { id: uid(), ...data }];
 
-            const nextActivityLog = approvalChanged
-              ? [
-                  ...(selected.activityLog || []),
-                  makeLogEntry(
-                    role,
-                    subconName,
-                    `Approval for "${data.description || data.category || "cost entry"}" changed: ${oldApproval} → ${newApproval}`
-                  ),
-                ]
-              : selected.activityLog || [];
+            const changeEntries = buildCostChangeLog(role, subconName, isEdit ? modal.data : null, data, !isEdit);
+            const nextActivityLog =
+              changeEntries.length > 0 ? [...(selected.activityLog || []), ...changeEntries] : selected.activityLog || [];
 
             updateProject(selected.id, { costs: nextCosts, activityLog: nextActivityLog });
             setModal(null);
