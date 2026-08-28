@@ -2101,8 +2101,6 @@ function PrintGanttChartSinglePage({ tasks, projectStart, projectEnd }) {
     return clamp((daysBetween(rangeStartStr, clamped) / totalDays) * 100, 0, 100);
   };
 
-  const todayVal = todayStr();
-  const todayPct = todayVal >= rangeStartStr && todayVal <= rangeEndStr ? pctForDate(todayVal) : null;
   const targetStartPct = projectStart && projectStart >= rangeStartStr && projectStart <= rangeEndStr ? pctForDate(projectStart) : null;
   // Drawn at the END of the target finish day (same "day after" trick as
   // task bars use), not its start — so a task completing exactly on the
@@ -2309,9 +2307,6 @@ function PrintGanttChartSinglePage({ tasks, projectStart, projectEnd }) {
                 )}
               </div>
               <div style={{ flex: 1, position: "relative", height: rowHeight }}>
-                {todayPct != null && (
-                  <div style={{ position: "absolute", left: `${todayPct}%`, top: 0, bottom: 0, width: 1, background: PR.amber }} />
-                )}
                 {targetStartPct != null && (
                   <div style={{ position: "absolute", left: `${targetStartPct}%`, top: 0, bottom: 0, width: 1, background: "#0F766E" }} />
                 )}
@@ -2408,9 +2403,6 @@ function PrintGanttChartSinglePage({ tasks, projectStart, projectEnd }) {
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
           <span style={{ display: "inline-block", width: 2, height: 10, background: PR.red }} /> Target finish
         </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <span style={{ display: "inline-block", width: 2, height: 10, background: PR.amber }} /> Today
-        </span>
       </div>
     </div>
   );
@@ -2442,11 +2434,9 @@ function PrintGanttWindow({ tasks, groupOrder, window, pageLabel, isFirst, proje
     return clamp((daysBetween(winStart, c) / totalDays) * 100, 0, 100);
   };
 
-  // Same three markers as the single-page chart, each only drawn on
+  // Same two markers as the single-page chart, each only drawn on
   // whichever page its date actually falls on — a long project's target
   // finish date lands on exactly one page, not all of them.
-  const todayVal = todayStr();
-  const todayPct = todayVal >= winStart && todayVal <= winEnd ? pctForDate(todayVal) : null;
   const targetStartPct = projectStart && projectStart >= winStart && projectStart <= winEnd ? pctForDate(projectStart) : null;
   const targetEndPct = projectEnd && projectEnd >= winStart && projectEnd <= winEnd ? pctForDate(addDaysStr(projectEnd, 1)) : null;
 
@@ -2594,9 +2584,6 @@ function PrintGanttWindow({ tasks, groupOrder, window, pageLabel, isFirst, proje
                 {g.name}
               </div>
               <div style={{ flex: 1, position: "relative", height: rowHeight }}>
-                {todayPct != null && (
-                  <div style={{ position: "absolute", left: `${todayPct}%`, top: 0, bottom: 0, width: 1, background: PR.amber }} />
-                )}
                 {targetStartPct != null && (
                   <div style={{ position: "absolute", left: `${targetStartPct}%`, top: 0, bottom: 0, width: 1, background: "#0F766E" }} />
                 )}
@@ -2724,9 +2711,6 @@ function PrintGanttChart({ tasks, projectStart, projectEnd }) {
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
           <span style={{ display: "inline-block", width: 2, height: 10, background: PR.red }} /> Target finish
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <span style={{ display: "inline-block", width: 2, height: 10, background: PR.amber }} /> Today
         </span>
       </div>
       {usedWindows.map((w, i) => (
