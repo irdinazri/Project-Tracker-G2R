@@ -258,7 +258,7 @@ const firstOfNextMonthStr = (dateStr) => {
 const monthYearLabel = (dateStr) => `${MONTH_NAMES_SHORT[Number(dateStr.slice(5, 7)) - 1]} ${dateStr.slice(0, 4)}`;
 
 const isWeekendDay = (dateStr) => {
-  const d = new Date(dateStr).getDay();
+  const d = new Date(dateStr).getUTCDay();
   return d === 0 || d === 6;
 };
 const rollToWorkingDay = (dateStr, worksWeekends) => {
@@ -1126,14 +1126,18 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
     [dayIndexOf, dayCount]
   );
 
-  const todayStrVal = todayStr();
-  const todayCol = colForDate(todayStrVal);
-  const showToday = todayStrVal >= visibleDays[0] && todayStrVal <= visibleDays[visibleDays.length - 1];
+  const todayStrVal = localDateStr(new Date());
+  const todayExactCol = dayIndexOf.get(todayStrVal); // undefined if today isn't a rendered column (e.g. weekend)
+  const showToday = todayExactCol !== undefined;
+  const todayCol = showToday ? todayExactCol : null; // for display only — never draw the marker on a nearby stand-in day
+  const todayColForStretch = colForDate(todayStrVal); // for bar-stretch math below, where a fallback day is fine
 
-  const showTargetStart = !!projectStart && projectStart >= visibleDays[0] && projectStart <= visibleDays[visibleDays.length - 1];
-  const showTargetEnd = !!projectEnd && projectEnd >= visibleDays[0] && projectEnd <= visibleDays[visibleDays.length - 1];
-  const targetStartCol = showTargetStart ? colForDate(projectStart) : null;
-  const targetEndCol = showTargetEnd ? colForDate(projectEnd) : null;
+  const targetStartExactCol = projectStart ? dayIndexOf.get(projectStart) : undefined;
+  const targetEndExactCol = projectEnd ? dayIndexOf.get(projectEnd) : undefined;
+  const showTargetStart = targetStartExactCol !== undefined;
+  const showTargetEnd = targetEndExactCol !== undefined;
+  const targetStartCol = showTargetStart ? targetStartExactCol : null;
+  const targetEndCol = showTargetEnd ? targetEndExactCol : null;
 
   const statusColor = {
     "Not Started": T.textFaint,
@@ -1171,10 +1175,10 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
     const bands = [];
     visibleDays.forEach((dateStr) => {
       const d = new Date(dateStr);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
       const last = bands[bands.length - 1];
       if (last && last.key === key) last.span++;
-      else bands.push({ key, span: 1, label: d.toLocaleDateString("en-GB", { month: "short", year: "numeric" }) });
+      else bands.push({ key, span: 1, label: d.toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }) });
     });
     return bands;
   }, [visibleDays]);
@@ -1217,7 +1221,7 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
         // the box to today (respecting this task's own day/night grace
         // window) so lateness visibly keeps growing instead of freezing.
         const isPastFinishIncomplete = t.end && t.end < overdueEffectiveToday(!!t.nightShift) && t.status !== "Completed";
-        const endCol = isPastFinishIncomplete ? Math.max(realEndCol, todayCol) : realEndCol;
+        const endCol = isPastFinishIncomplete ? Math.max(realEndCol, todayColForStretch) : realEndCol;
         return { task: t, startCol, endCol };
       });
       const sorted = [...withCols].sort((a, b) => a.startCol - b.startCol);
@@ -1304,7 +1308,7 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                       fontWeight: isToday ? 600 : 400,
                     }}
                   >
-                    {d.getDate()}
+                    {d.getUTCDate()}
                   </span>
                 );
               })}
@@ -1446,7 +1450,7 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                               <AlertTriangle size={compact ? 10 : 12} />
                             </span>
                           )}
-                          {!finishedLate && (
+                          {!hasOverrun && (
                             <div
                               className="relative"
                               style={{ width: `${progress}%`, background: color, height: "100%" }}
@@ -2248,7 +2252,7 @@ function PrintGanttChartSinglePage({ tasks, projectStart, projectEnd }) {
         // pctForDate twice — simpler, and doesn't depend on the range's
         // exclusive boundary trick working out for every tick.
         pct: ((daysBetween(rangeStartStr, cursor) + 0.5) / totalDays) * 100,
-        label: String(new Date(cursor).getDate()),
+        label: String(new Date(cursor).getUTCDate()),
       });
       cursor = addDaysStr(cursor, tickIntervalDays);
     }
@@ -2540,7 +2544,7 @@ function PrintGanttWindow({ tasks, groupOrder, window, pageLabel, isFirst, proje
       guard++;
       dayTicks.push({
         pct: ((daysBetween(winStart, cursor) + 0.5) / totalDays) * 100,
-        label: String(new Date(cursor).getDate()),
+        label: String(new Date(cursor).getUTCDate()),
       });
       cursor = addDaysStr(cursor, tickIntervalDays);
     }
