@@ -2842,6 +2842,22 @@ function taskDelayComment(t, issuesByTaskId) {
   return parts.length ? parts.join(" ") : null;
 }
 
+// Plain-language comparison of target finish vs actual finish (or, if the
+// project hasn't finished yet, vs today) — this replaces the schedule
+// story the Gantt chart used to tell in the printed report.
+function finishVarianceSummary(project) {
+  if (!project.endDate) return null;
+  if (project.actualFinishDate) {
+    const diff = Math.round(daysBetween(project.endDate, project.actualFinishDate));
+    if (diff > 0) return { text: `${diff} day${diff === 1 ? "" : "s"} late`, tone: "late" };
+    if (diff < 0) return { text: `${Math.abs(diff)} day${Math.abs(diff) === 1 ? "" : "s"} early`, tone: "early" };
+    return { text: "Finished on time", tone: "onTime" };
+  }
+  const diff = Math.round(daysBetween(project.endDate, todayStr()));
+  if (diff > 0) return { text: `${diff} day${diff === 1 ? "" : "s"} overdue — not yet finished`, tone: "late" };
+  return { text: `${Math.abs(diff)} day${Math.abs(diff) === 1 ? "" : "s"} remaining`, tone: "onTime" };
+}
+
 function PrintReport({ project }) {
   if (!project) return null;
   const m = calcProjectMetrics(project);
@@ -2856,7 +2872,7 @@ function PrintReport({ project }) {
   const finishForDuration = project.actualFinishDate || project.endDate;
   const duration =
     project.startDate && finishForDuration ? Math.round(daysBetween(project.startDate, finishForDuration)) : null;
-
+  const variance = finishVarianceSummary(project); 
   // Plain object, not memoized — PrintReport only renders once when the
   // print dialog is triggered, so there's no repeated-render cost to guard
   // against here.
@@ -2961,24 +2977,38 @@ function PrintReport({ project }) {
         </div>
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: PR.dim, marginBottom: 8 }}>
-            Budget summary
+            Project info
           </h2>
           {[
-            ["Contract value", fmtRM(m.contractValue)],
-            ["Actual cost", fmtRM(m.actualCost)],
-            ["Profit", fmtRM(m.profit)],
-            ["Margin", fmtPct(m.margin)],
-            ["Open issues", String(m.openIssuesCount)],
+            ["Coordinator", project.coordinator || "—"],
+            ["Subcontractor", project.subcon || "—"],
+            ["Status", project.status || "—"],
+            ["Target start", fmtDate(project.startDate)],
+            ["Target finish", fmtDate(project.endDate)],
+            ...(project.actualFinishDate ? [["Actual finish", fmtDate(project.actualFinishDate)]] : []),
+            ["Duration", duration != null ? `${duration} days` : "—"],
+            ["Completion", fmtPct(m.completion)],
           ].map(([k, v]) => (
             <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: `1px solid ${PR.border}` }}>
               <span style={{ color: PR.dim }}>{k}</span>
               <span style={{ fontWeight: 500 }}>{v}</span>
             </div>
           ))}
+          {variance && (
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "6px 0 3px" }}>
+              <span style={{ color: PR.dim, fontWeight: 600 }}>Schedule variance</span>
+              <span
+                style={{
+                  fontWeight: 700,
+                  color: variance.tone === "late" ? PR.red : variance.tone === "early" ? PR.green : PR.text,
+                }}
+              >
+                {variance.text}
+              </span>
+            </div>
+          )}
         </div>
       </div>
-
-      <PrintGanttChart tasks={tasks} projectStart={project.startDate} projectEnd={project.endDate} />
 
       {tasks.length > 0 && (
         <div style={{ marginBottom: 20, breakInside: "avoid" }}>
