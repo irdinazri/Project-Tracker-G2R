@@ -1315,155 +1315,163 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
             </div>
           </div>
           </div>
-
-          <div className="px-4 pb-4 flex flex-col gap-1.5">
-            {groupsWithLanes.map((g) => {
-              const groupHeight = g.laneCount * LANE_H + (g.laneCount - 1) * LANE_GAP;
-              return (
-                <div key={g.name} className="flex items-start" style={{ minHeight: Math.max(ROW_H, groupHeight) }}>
+          <div className="px-4 pb-4">
+            <div className="relative">
+              {/* Shared day-grid + today/target-date overlay — rendered ONCE
+                  behind every row. Previously this was recreated inside
+                  each task-name row (dayCount divs × every row), which is
+                  what made opening a project with a lot of distinct task
+                  names slow right as it loaded. */}
+              <div
+                className="absolute top-0 bottom-0 pointer-events-none"
+                style={{ left: LABEL_W, width: timelineWidth }}
+              >
+                {Array.from({ length: dayCount }).map((_, i) => (
                   <div
-                    className={`pr-3 truncate flex items-center gap-1.5 ${compact ? "text-[13px]" : "text-[15px]"}`}
+                    key={i}
+                    className="absolute top-0 bottom-0"
                     style={{
-                      width: LABEL_W,
-                      flexShrink: 0,
-                      color: T.text,
-                      position: "sticky",
-                      left: 0,
-                      background: T.bgElevated,
-                      zIndex: 1,
-                      height: Math.max(ROW_H, groupHeight),
+                      left: i * effectivePxPerDay,
+                      width: effectivePxPerDay,
+                      borderRight: i === targetEndCol ? `2px dashed ${T.red}` : `1px solid ${T.border}`,
+                      borderLeft: i === targetStartCol ? `2px dashed ${T.accentText}` : undefined,
+                      background: i === todayCol ? T.amberSoft : "transparent",
                     }}
-                    title={g.name}
-                  >
-                    <span className="truncate">{g.name}</span>
-                    {g.items.length > 1 && (
-                      <span className="text-[11px] shrink-0" style={{ color: T.textFaint }}>
-                        ({g.items.length} sites)
-                      </span>
-                    )}
-                  </div>
-                  <div className="relative" style={{ width: timelineWidth, height: groupHeight }}>
-                    {Array.from({ length: dayCount }).map((_, i) => (
+                  />
+                ))}
+              </div>
+
+              <div className="relative flex flex-col gap-1.5">
+                {groupsWithLanes.map((g) => {
+                  const groupHeight = g.laneCount * LANE_H + (g.laneCount - 1) * LANE_GAP;
+                  return (
+                    <div key={g.name} className="flex items-start" style={{ minHeight: Math.max(ROW_H, groupHeight) }}>
                       <div
-                        key={i}
-                        className="absolute top-0 bottom-0"
+                        className={`pr-3 truncate flex items-center gap-1.5 ${compact ? "text-[13px]" : "text-[15px]"}`}
                         style={{
-                          left: i * effectivePxPerDay,
-                          width: effectivePxPerDay,
-                          borderRight: i === targetEndCol ? `2px dashed ${T.red}` : `1px solid ${T.border}`,
-                          borderLeft: i === targetStartCol ? `2px dashed ${T.accentText}` : undefined,
-                          background: i === todayCol ? T.amberSoft : "transparent",
+                          width: LABEL_W,
+                          flexShrink: 0,
+                          color: T.text,
+                          position: "sticky",
+                          left: 0,
+                          background: T.bgElevated,
+                          zIndex: 1,
+                          height: Math.max(ROW_H, groupHeight),
                         }}
-                      />
-                    ))}
-                    {g.items.map(({ task: t, startCol, endCol, lane }) => {
-                      const leftPx = startCol * effectivePxPerDay;
-                      const widthPx = (endCol - startCol + 1) * effectivePxPerDay;
-                      const color = statusColor[t.status] || T.textFaint;
-                      const overdueToday = overdueEffectiveToday(!!t.nightShift);
+                        title={g.name}
+                      >
+                        <span className="truncate">{g.name}</span>
+                        {g.items.length > 1 && (
+                          <span className="text-[11px] shrink-0" style={{ color: T.textFaint }}>
+                            ({g.items.length} sites)
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative" style={{ width: timelineWidth, height: groupHeight }}>
+                        {g.items.map(({ task: t, startCol, endCol, lane }) => {
+                          const leftPx = startCol * effectivePxPerDay;
+                          const widthPx = (endCol - startCol + 1) * effectivePxPerDay;
+                          const color = statusColor[t.status] || T.textFaint;
+                          const overdueToday = overdueEffectiveToday(!!t.nightShift);
 
-                      // Days before the ORIGINAL due date (plannedEnd) keep
-                      // the normal status colour. From that due date through
-                      // the real Finish date, red. Applies both while
-                      // Delayed AND after completion, so a task that took
-                      // 3 days against a 1-day plan keeps its red tail
-                      // permanently, not just until someone marks it done.
-                      const plannedEndDate = t.plannedEnd || null;
-                      const plannedCol = plannedEndDate ? colForDate(plannedEndDate) : null;
-                      const overrunSpan = plannedCol != null && plannedCol >= startCol && plannedCol < endCol;
-                      const finishedLate = t.status === "Completed" && overrunSpan;
-                      const hasOverrun = (t.status === "Delayed" && overrunSpan) || finishedLate;
-                      const accentDays = hasOverrun ? plannedCol - startCol : 0;
-                      const redDays = hasOverrun ? endCol - plannedCol + 1 : 0;
+                          const plannedEndDate = t.plannedEnd || null;
+                          const plannedCol = plannedEndDate ? colForDate(plannedEndDate) : null;
+                          const overrunSpan = plannedCol != null && plannedCol >= startCol && plannedCol < endCol;
+                          const finishedLate = t.status === "Completed" && overrunSpan;
+                          const hasOverrun = (t.status === "Delayed" && overrunSpan) || finishedLate;
+                          const accentDays = hasOverrun ? plannedCol - startCol : 0;
+                          const redDays = hasOverrun ? endCol - plannedCol + 1 : 0;
 
-                      const isOverdueUnflagged =
-                        t.end && t.end < overdueToday && t.status !== "Completed" && t.status !== "Delayed";
-                      const stillRunningOverdue = t.status === "Delayed" && t.end < overdueToday;
-                      const daysOverdue = daysOverdueCount(t, overdueToday);
-                      const daysLate =
-                        finishedLate && t.plannedEnd && t.end
-                          ? Math.max(1, Math.round(daysBetween(t.plannedEnd, t.end)))
-                          : 0;
-                      const linkedIssues = openIssuesByTask[t.id] || [];
-                      const progress = clamp(t.progress || 0, 0, 100);
-                      const clickable = !!onEditTask;
-                      const sitePrefix = t.site ? `${t.site} — ` : "All sites — ";
+                          const isOverdueUnflagged =
+                            t.end && t.end < overdueToday && t.status !== "Completed" && t.status !== "Delayed";
+                          const stillRunningOverdue = t.status === "Delayed" && t.end < overdueToday;
+                          const daysOverdue = daysOverdueCount(t, overdueToday);
+                          const daysLate =
+                            finishedLate && t.plannedEnd && t.end
+                              ? Math.max(1, Math.round(daysBetween(t.plannedEnd, t.end)))
+                              : 0;
+                          const linkedIssues = openIssuesByTask[t.id] || [];
+                          const progress = clamp(t.progress || 0, 0, 100);
+                          const clickable = !!onEditTask;
+                          const sitePrefix = t.site ? `${t.site} — ` : "All sites — ";
 
-                      return (
-                        <div
-                          key={t.id}
-                          onClick={clickable ? () => onEditTask(t) : undefined}
-                          className="absolute rounded-md flex items-center overflow-hidden"
-                          style={{
-                            left: leftPx,
-                            width: Math.max(widthPx, effectivePxPerDay),
-                            top: lane * (LANE_H + LANE_GAP),
-                            height: LANE_H,
-                            background: hasOverrun ? "transparent" : `${color}33`,
-                            border: `1px solid ${
-                              isOverdueUnflagged ? T.amber : hasOverrun && !finishedLate ? T.red : color
-                            }`,
-                            borderStyle: isOverdueUnflagged || stillRunningOverdue ? "dashed" : "solid",
-                            cursor: clickable ? "pointer" : "default",
-                          }}
-                          title={
-                            finishedLate
-                              ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} · completed ${daysLate}d after the original ${fmtDate(t.plannedEnd)} finish date`
-                              : hasOverrun
-                              ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · overdue since ${fmtDate(t.plannedEnd)}${stillRunningOverdue ? ` · still ${daysOverdue}d past its Finish date` : ""}`
-                              : isOverdueUnflagged
-                              ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · ${daysOverdue}d past its finish date, not marked Delayed yet`
-                              : linkedIssues.length > 0
-                              ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · blocked: ${linkedIssues.map((i) => i.description).join(" · ")}`
-                              : `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%)`
-                          }
-                        >
-                          {hasOverrun && (
-                            <>
-                              <div
-                                className="absolute inset-y-0 left-0"
-                                style={{
-                                  width: accentDays * effectivePxPerDay,
-                                  background: finishedLate ? T.green : `${T.accent}33`,
-                                }}
-                              />
-                              <div
-                                className="absolute inset-y-0"
-                                style={{
-                                  left: accentDays * effectivePxPerDay,
-                                  right: 0,
-                                  background: finishedLate ? T.red : `${T.red}33`,
-                                }}
-                              />
-                              <div
-                                className="absolute top-0 bottom-0"
-                                style={{
-                                  left: accentDays * effectivePxPerDay,
-                                  width: 1,
-                                  background: finishedLate ? "rgba(255,255,255,0.85)" : T.red,
-                                }}
-                              />
-                            </>
-                          )}
-                          {linkedIssues.length > 0 && (
-                            <span className="absolute -top-1 -right-1" style={{ color: T.red }}>
-                              <AlertTriangle size={compact ? 10 : 12} />
-                            </span>
-                          )}
-                          {!hasOverrun && (
+                          return (
                             <div
-                              className="relative"
-                              style={{ width: `${progress}%`, background: color, height: "100%" }}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                              key={t.id}
+                              onClick={clickable ? () => onEditTask(t) : undefined}
+                              className="absolute rounded-md flex items-center overflow-hidden"
+                              style={{
+                                left: leftPx,
+                                width: Math.max(widthPx, effectivePxPerDay),
+                                top: lane * (LANE_H + LANE_GAP),
+                                height: LANE_H,
+                                background: hasOverrun ? "transparent" : `${color}33`,
+                                border: `1px solid ${
+                                  isOverdueUnflagged ? T.amber : hasOverrun && !finishedLate ? T.red : color
+                                }`,
+                                borderStyle: isOverdueUnflagged || stillRunningOverdue ? "dashed" : "solid",
+                                cursor: clickable ? "pointer" : "default",
+                              }}
+                              title={
+                                finishedLate
+                                  ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} · completed ${daysLate}d after the original ${fmtDate(t.plannedEnd)} finish date`
+                                  : hasOverrun
+                                  ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · overdue since ${fmtDate(t.plannedEnd)}${stillRunningOverdue ? ` · still ${daysOverdue}d past its Finish date` : ""}`
+                                  : isOverdueUnflagged
+                                  ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · ${daysOverdue}d past its finish date, not marked Delayed yet`
+                                  : linkedIssues.length > 0
+                                  ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · blocked: ${linkedIssues.map((i) => i.description).join(" · ")}`
+                                  : `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%)`
+                              }
+                            >
+                              {hasOverrun && (
+                                <>
+                                  <div
+                                    className="absolute inset-y-0 left-0"
+                                    style={{
+                                      width: accentDays * effectivePxPerDay,
+                                      background: finishedLate ? T.green : `${T.accent}33`,
+                                    }}
+                                  />
+                                  <div
+                                    className="absolute inset-y-0"
+                                    style={{
+                                      left: accentDays * effectivePxPerDay,
+                                      right: 0,
+                                      background: finishedLate ? T.red : `${T.red}33`,
+                                    }}
+                                  />
+                                  <div
+                                    className="absolute top-0 bottom-0"
+                                    style={{
+                                      left: accentDays * effectivePxPerDay,
+                                      width: 1,
+                                      background: finishedLate ? "rgba(255,255,255,0.85)" : T.red,
+                                    }}
+                                  />
+                                </>
+                              )}
+                              {linkedIssues.length > 0 && (
+                                <span className="absolute -top-1 -right-1" style={{ color: T.red }}>
+                                  <AlertTriangle size={compact ? 10 : 12} />
+                                </span>
+                              )}
+                              {!hasOverrun && (
+                                <div
+                                  className="relative"
+                                  style={{ width: `${progress}%`, background: color, height: "100%" }}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>  
         </div>
       </div>
       <div className={`flex items-center gap-4 px-4 flex-wrap ${compact ? "pb-3 pt-1 text-[11px]" : "pb-4 pt-2 text-[13px]"}`} style={{ borderTop: `1px solid ${T.border}`, color: T.textFaint }}>
