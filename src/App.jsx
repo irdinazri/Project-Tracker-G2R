@@ -3323,7 +3323,7 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, 
     : [];
 
   return (
-    <div className="flex flex-col gap-6 max-w-6xl mx-auto">
+    <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
@@ -3529,7 +3529,7 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
     ? projects.filter((p) => calcProjectMetrics(p).health === healthFilter)
     : projects;
   return (
-    <div className="flex flex-col gap-5 max-w-6xl mx-auto">
+    <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
@@ -3715,7 +3715,7 @@ function ProjectDetailView({
   const effectiveTab = tabIds.includes(tab) ? tab : "overview";
 
   return (
-    <div className="flex flex-col gap-5 max-w-6xl mx-auto">
+    <div className="flex flex-col gap-5">
       <div>
         <button
           onClick={onBack}
