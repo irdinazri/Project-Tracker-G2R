@@ -3018,100 +3018,7 @@ function PrintReport({ project }) {
         </div>
       </div>
 
-      {tasks.length > 0 && (
-        <div style={{ marginBottom: 20, breakInside: "avoid" }}>
-          <h2 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: PR.dim, marginBottom: 6 }}>
-            Schedule
-          </h2>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={th}>Task</th>
-                <th style={th}>Owner</th>
-                <th style={th}>Start</th>
-                <th style={th}>Finish</th>
-                <th style={th}>Status</th>
-                <th style={th}>Progress</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                const siteGroups = groupTasksBySite(tasks, project.siteNames || []);
-                const renderTaskRow = (t) => {
-                  const delayComment = taskDelayComment(t, issuesByTaskId);
-                  return (
-                    <tr key={t.id}>
-                      <td style={td}>
-                        {t.name}
-                        {delayComment && (
-                          <div style={{ fontSize: 10.5, color: PR.red, marginTop: 2 }}>
-                            <strong>Delay note:</strong> {delayComment}
-                          </div>
-                        )}
-                      </td>
-                      <td style={td}>{t.owner || "—"}</td>
-                      <td style={td}>{fmtDate(t.start)}</td>
-                      <td style={td}>{fmtDate(t.end)}</td>
-                      <td style={td}>{t.status}</td>
-                      <td style={td}>{t.progress || 0}%</td>
-                    </tr>
-                  );
-                };
-
-                if (!siteGroups) {
-                  // No defined site list on this project — same flat
-                  // rendering as before, just with the site subtitle still
-                  // shown per row since there's no header to convey it.
-                  return tasks.map((t) => {
-                    const delayComment = taskDelayComment(t, issuesByTaskId);
-                    return (
-                      <tr key={t.id}>
-                        <td style={td}>
-                          {t.name}
-                          {t.site && <div style={{ fontSize: 10.5, color: PR.faint, marginTop: 2 }}>{t.site}</div>}
-                          {delayComment && (
-                            <div style={{ fontSize: 10.5, color: PR.red, marginTop: 2 }}>
-                              <strong>Delay note:</strong> {delayComment}
-                            </div>
-                          )}
-                        </td>
-                        <td style={td}>{t.owner || "—"}</td>
-                        <td style={td}>{fmtDate(t.start)}</td>
-                        <td style={td}>{fmtDate(t.end)}</td>
-                        <td style={td}>{t.status}</td>
-                        <td style={td}>{t.progress || 0}%</td>
-                      </tr>
-                    );
-                  });
-                }
-
-                return siteGroups.map((g) => (
-                  <React.Fragment key={g.site || "unassigned"}>
-                    <tr>
-                      <td
-                        colSpan={6}
-                        style={{
-                          fontSize: 10.5,
-                          fontWeight: 600,
-                          color: PR.dim,
-                          background: PR.headBg,
-                          padding: "5px 8px",
-                          borderBottom: `1px solid ${PR.border}`,
-                        }}
-                      >
-                        {g.site || "No site assigned"} — {g.tasks.length} task{g.tasks.length === 1 ? "" : "s"}
-                      </td>
-                    </tr>
-                    {g.tasks.map((t) => renderTaskRow(t))}
-                  </React.Fragment>
-                ));
-              })()}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {costs.length > 0 && (
+            {costs.length > 0 && (
         <div style={{ marginBottom: 20, breakInside: "avoid" }}>
           <h2 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: PR.dim, marginBottom: 6 }}>
             Cost ledger
@@ -3175,7 +3082,7 @@ function PrintReport({ project }) {
       )}
 
       {issues.length > 0 && (
-        <div style={{ marginBottom: 8, breakInside: "avoid" }}>
+        <div style={{ marginBottom: 20, breakInside: "avoid" }}>
           <h2 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: PR.dim, marginBottom: 6 }}>
             Issues
           </h2>
@@ -3218,6 +3125,96 @@ function PrintReport({ project }) {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tasks.length > 0 && (
+        <div style={{ marginBottom: 8, breakInside: "avoid" }}>
+          <h2 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: PR.dim, marginBottom: 6 }}>
+            Schedule
+          </h2>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={th}>Task</th>
+                <th style={th}>Owner</th>
+                <th style={th}>Start</th>
+                <th style={th}>Finish</th>
+                <th style={th}>Status</th>
+                <th style={th}>Progress</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(() => {
+                const siteGroups = groupTasksBySite(tasks, project.siteNames || []);
+                const renderTaskRow = (t) => {
+                  const delayComment = taskDelayComment(t, issuesByTaskId);
+                  return (
+                    <tr key={t.id}>
+                      <td style={td}>
+                        {t.name}
+                        {delayComment && (
+                          <div style={{ fontSize: 10.5, color: PR.red, marginTop: 2 }}>
+                            <strong>Delay note:</strong> {delayComment}
+                          </div>
+                        )}
+                      </td>
+                      <td style={td}>{t.owner || "—"}</td>
+                      <td style={td}>{fmtDate(t.start)}</td>
+                      <td style={td}>{fmtDate(t.end)}</td>
+                      <td style={td}>{t.status}</td>
+                      <td style={td}>{t.progress || 0}%</td>
+                    </tr>
+                  );
+                };
+
+                if (!siteGroups) {
+                  return tasks.map((t) => {
+                    const delayComment = taskDelayComment(t, issuesByTaskId);
+                    return (
+                      <tr key={t.id}>
+                        <td style={td}>
+                          {t.name}
+                          {t.site && <div style={{ fontSize: 10.5, color: PR.faint, marginTop: 2 }}>{t.site}</div>}
+                          {delayComment && (
+                            <div style={{ fontSize: 10.5, color: PR.red, marginTop: 2 }}>
+                              <strong>Delay note:</strong> {delayComment}
+                            </div>
+                          )}
+                        </td>
+                        <td style={td}>{t.owner || "—"}</td>
+                        <td style={td}>{fmtDate(t.start)}</td>
+                        <td style={td}>{fmtDate(t.end)}</td>
+                        <td style={td}>{t.status}</td>
+                        <td style={td}>{t.progress || 0}%</td>
+                      </tr>
+                    );
+                  });
+                }
+
+                return siteGroups.map((g) => (
+                  <React.Fragment key={g.site || "unassigned"}>
+                    <tr>
+                      <td
+                        colSpan={6}
+                        style={{
+                          fontSize: 10.5,
+                          fontWeight: 600,
+                          color: PR.dim,
+                          background: PR.headBg,
+                          padding: "5px 8px",
+                          borderBottom: `1px solid ${PR.border}`,
+                        }}
+                      >
+                        {g.site || "No site assigned"} — {g.tasks.length} task{g.tasks.length === 1 ? "" : "s"}
+                      </td>
+                    </tr>
+                    {g.tasks.map((t) => renderTaskRow(t))}
+                  </React.Fragment>
+                ));
+              })()}
             </tbody>
           </table>
         </div>
