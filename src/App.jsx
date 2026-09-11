@@ -2881,6 +2881,7 @@ function PrintReport({ project }) {
   const duration =
     project.startDate && finishForDuration ? Math.round(daysBetween(project.startDate, finishForDuration)) : null;
   const variance = finishVarianceSummary(project); 
+  const isCompleted = project.status === "Completed";
   // Plain object, not memoized — PrintReport only renders once when the
   // print dialog is triggered, so there's no repeated-render cost to guard
   // against here.
@@ -2923,7 +2924,9 @@ function PrintReport({ project }) {
             style={{ height: 40, width: "auto", objectFit: "contain" }}
           />
           <div>
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: PR.dim }}>Project report</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: PR.dim }}>
+              {isCompleted ? "Final Report" : "Progress Report"}
+            </div>
             <h1 style={{ fontSize: 22, fontWeight: 700, margin: "2px 0 0", fontFamily: "'Space Grotesk', Arial, sans-serif" }}>
               {project.name || "Untitled project"}
             </h1>
@@ -2932,10 +2935,27 @@ function PrintReport({ project }) {
             </div>
           </div>
         </div>
-        <div style={{ textAlign: "right", fontSize: 11, color: PR.dim }}>
+                <div style={{ textAlign: "right", fontSize: 11, color: PR.dim }}>
           Generated {fmtDate(todayStr())}
           <br />
-          Health: <strong style={{ color: PR[m.health.toLowerCase()] || PR.text }}>{HEALTH_LABEL[m.health]}</strong>
+          {isCompleted ? (
+            <>
+              {variance && (
+                <>
+                  Schedule variance:{" "}
+                  <strong style={{ color: variance.tone === "late" ? PR.red : variance.tone === "early" ? PR.green : PR.text }}>
+                    {variance.text}
+                  </strong>
+                  <br />
+                </>
+              )}
+              Final profit: <strong style={{ color: m.profit >= 0 ? PR.green : PR.red }}>{fmtRM(m.profit)}</strong>
+            </>
+          ) : (
+            <>
+              Health: <strong style={{ color: PR[m.health.toLowerCase()] || PR.text }}>{HEALTH_LABEL[m.health]}</strong>
+            </>
+          )}
           {m.scheduleDoneFinanceOpen && (
             <>
               <br />
@@ -2964,45 +2984,16 @@ function PrintReport({ project }) {
             ["Status", project.status || "—"],
             ["Target start", fmtDate(project.startDate)],
             ["Target finish", fmtDate(project.endDate)],
-            ...(project.actualFinishDate
-              ? [[
-                  "Actual finish",
-                  `${fmtDate(project.actualFinishDate)}${
-                    project.endDate && project.actualFinishDate > project.endDate
-                      ? ` (${Math.max(1, Math.round(daysBetween(project.endDate, project.actualFinishDate)))}d late)`
-                      : ""
-                  }`,
-                ]]
-              : []),
-            ["Duration", duration != null ? `${duration} days` : "—"],
-            ["Completion", fmtPct(m.completion)],
-          ].map(([k, v]) => (
-            <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: `1px solid ${PR.border}` }}>
-              <span style={{ color: PR.dim }}>{k}</span>
-              <span style={{ fontWeight: 500 }}>{v}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: PR.dim, marginBottom: 8 }}>
-            Project info
-          </h2>
-          {[
-            ["Coordinator", project.coordinator || "—"],
-            ["Subcontractor", project.subcon || "—"],
-            ["Status", project.status || "—"],
-            ["Target start", fmtDate(project.startDate)],
-            ["Target finish", fmtDate(project.endDate)],
             ...(project.actualFinishDate ? [["Actual finish", fmtDate(project.actualFinishDate)]] : []),
             ["Duration", duration != null ? `${duration} days` : "—"],
-            ["Completion", fmtPct(m.completion)],
+            ...(isCompleted ? [] : [["Completion", fmtPct(m.completion)]]),
           ].map(([k, v]) => (
             <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: `1px solid ${PR.border}` }}>
               <span style={{ color: PR.dim }}>{k}</span>
               <span style={{ fontWeight: 500 }}>{v}</span>
             </div>
           ))}
-          {variance && (
+          {!isCompleted && variance && (
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "6px 0 3px" }}>
               <span style={{ color: PR.dim, fontWeight: 600 }}>Schedule variance</span>
               <span
@@ -3015,6 +3006,23 @@ function PrintReport({ project }) {
               </span>
             </div>
           )}
+        </div>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5, color: PR.dim, marginBottom: 8 }}>
+            Budget summary
+          </h2>
+          {[
+            ["Contract value", fmtRM(m.contractValue)],
+            [isCompleted ? "Final cost" : "Actual cost", fmtRM(m.actualCost)],
+            [isCompleted ? "Final profit" : "Profit", fmtRM(m.profit)],
+            [isCompleted ? "Final margin" : "Margin", fmtPct(m.margin)],
+            ["Open issues", String(m.openIssuesCount)],
+          ].map(([k, v]) => (
+            <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: `1px solid ${PR.border}` }}>
+              <span style={{ color: PR.dim }}>{k}</span>
+              <span style={{ fontWeight: 500 }}>{v}</span>
+            </div>
+          ))}
         </div>
       </div>
 
