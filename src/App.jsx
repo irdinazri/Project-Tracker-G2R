@@ -3416,7 +3416,6 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, 
               label="Open issues"
               value={totalOpenIssues}
               accent={totalOpenIssues > 0 ? T.amber : T.text}
-              onClick={onViewAllIssues}
             />
             <KpiCard
               label="Active projects"
