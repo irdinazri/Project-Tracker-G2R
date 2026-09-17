@@ -95,7 +95,12 @@ const ISSUE_STATUSES = ["Open", "In Progress", "Resolved", "Closed"];
 const HEALTH_LABEL = { RED: "At risk", AMBER: "Watch", GREEN: "On track", COMPLETED: "Completed" };
 const HEALTH_COLOR = { RED: T.red, AMBER: T.amber, GREEN: T.green, COMPLETED: T.accentText };
 const HEALTH_SOFT = { RED: T.redSoft, AMBER: T.amberSoft, GREEN: T.greenSoft, COMPLETED: T.accentSoft };
-
+// Two extra filter kinds shown on Projects alongside the real health
+// values above — these check project.status/finance/issues directly
+// rather than the computed health, but share the same filter slot.
+const FILTER_LABEL = { ...HEALTH_LABEL, ACTIVE: "Active", FULLY_COMPLETED: "Fully completed" };
+const FILTER_COLOR = { ...HEALTH_COLOR, ACTIVE: T.accentText, FULLY_COMPLETED: T.green };
+const FILTER_SOFT = { ...HEALTH_SOFT, ACTIVE: T.accentSoft, FULLY_COMPLETED: T.greenSoft };
 /* ============================== ROLES ============================== */
 const ROLES = { COORDINATOR: "coordinator", FINANCE: "finance", SUBCON: "subcon", ADMIN: "admin" };
 const ROLE_LABELS = {
@@ -1554,23 +1559,31 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
 }
 
 /* ============================== KPI CARD ============================== */
-function KpiCard({ label, value, accent, wide }) {
+function KpiCard({ label, value, accent, wide, onClick }) {
   const len = String(value).length;
   const sizeClass = wide
-    ? len > 21
-      ? "text-lg"
-      : len > 17
-      ? "text-xl"
-      : "text-2xl"
-    : len > 13
-    ? "text-lg"
-    : len > 10
-    ? "text-xl"
-    : "text-2xl";
+    ? len > 21 ? "text-lg" : len > 17 ? "text-xl" : "text-2xl"
+    : len > 13 ? "text-lg" : len > 10 ? "text-xl" : "text-2xl";
+  const clickable = !!onClick;
   return (
     <div
-      className="rounded-xl p-4 flex flex-col gap-1.5 min-w-0"
-      style={{ background: T.surface, border: `1px solid ${T.border}` }}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
+      className="rounded-xl p-4 flex flex-col gap-1.5 min-w-0 transition-colors"
+      style={{ background: T.surface, border: `1px solid ${T.border}`, cursor: clickable ? "pointer" : "default" }}
+      onMouseEnter={clickable ? (e) => (e.currentTarget.style.borderColor = T.borderStrong) : undefined}
+      onMouseLeave={clickable ? (e) => (e.currentTarget.style.borderColor = T.border) : undefined}
     >
       <span className="text-[11px] uppercase tracking-wide font-medium truncate" style={{ color: T.textDim }}>
         {label}
@@ -1827,9 +1840,15 @@ export default function App() {
         : 0;
     const totalOpenIssues = withM.reduce((s, x) => s + x.m.openIssuesCount, 0);
     const active = withM.filter((x) => x.p.status !== "Completed" && x.p.status !== "Cancelled").length;
+    // Stricter than the "Completed" health value below — that one only
+    // checks project.status. This also requires zero pending/unpaid cost
+    // approvals and zero open issues, i.e. genuinely nothing left to do.
+    const fullyCompletedCount = withM.filter(
+      (x) => x.p.status === "Completed" && x.m.financeOpenCount === 0 && x.m.openIssuesCount === 0
+    ).length;
     const healthCounts = { RED: 0, AMBER: 0, GREEN: 0, COMPLETED: 0 };
     withM.forEach((x) => healthCounts[x.m.health]++);
-    return { withM, totalContract, totalActual, totalProfit, weightedCompletion, totalOpenIssues, active, healthCounts };
+    return { withM, totalContract, totalActual, totalProfit, weightedCompletion, totalOpenIssues, active, fullyCompletedCount, healthCounts };
   }, [visibleProjects]);
 
   if (!role) {
@@ -3335,7 +3354,7 @@ function SidebarContent({ view, navigate }) {
 /* ============================== DASHBOARD VIEW ============================== */
 function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, onFilterHealth }) {
   const { canEditProject, canSeeFinancials } = usePermissions();
-  const { withM, totalContract, totalActual, totalProfit, totalOpenIssues, active, healthCounts } =
+  const { withM, totalContract, totalActual, totalProfit, totalOpenIssues, active, fullyCompletedCount, healthCounts } =
     companyMetrics;
 
   const [chartProjectId, setChartProjectId] = useState(null);
@@ -3392,9 +3411,24 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, 
               <KpiCard label="Profit" value={fmtRM(totalProfit)} accent={T.accent} wide />
             </div>
           )}
-          <div className="grid grid-cols-2 gap-3" style={{ maxWidth: 320 }}>
-            <KpiCard label="Open issues" value={totalOpenIssues} accent={totalOpenIssues > 0 ? T.amber : T.text} />
-            <KpiCard label="Active projects" value={active} />
+          <div className="grid grid-cols-3 gap-3" style={{ maxWidth: 480 }}>
+            <KpiCard
+              label="Open issues"
+              value={totalOpenIssues}
+              accent={totalOpenIssues > 0 ? T.amber : T.text}
+              onClick={onViewAllIssues}
+            />
+            <KpiCard
+              label="Active projects"
+              value={active}
+              onClick={() => onFilterHealth("ACTIVE")}
+            />
+            <KpiCard
+              label="Fully completed"
+              value={fullyCompletedCount}
+              accent={fullyCompletedCount > 0 ? T.green : T.text}
+              onClick={() => onFilterHealth("FULLY_COMPLETED")}
+            />
           </div>
 
           <div className="flex flex-wrap gap-3">
@@ -3555,9 +3589,16 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, 
 /* ============================== PROJECTS VIEW ============================== */
 function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, onDeleteProject, healthFilter, onClearHealthFilter }) {
   const { canEditProject, canSeeFinancials } = usePermissions();
-  const filteredProjects = healthFilter
-    ? projects.filter((p) => calcProjectMetrics(p).health === healthFilter)
-    : projects;
+  const filteredProjects = !healthFilter
+    ? projects
+    : healthFilter === "ACTIVE"
+    ? projects.filter((p) => p.status !== "Completed" && p.status !== "Cancelled")
+    : healthFilter === "FULLY_COMPLETED"
+    ? projects.filter((p) => {
+        const m = calcProjectMetrics(p);
+        return p.status === "Completed" && m.financeOpenCount === 0 && m.openIssuesCount === 0;
+      })
+    : projects.filter((p) => calcProjectMetrics(p).health === healthFilter);
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
@@ -3567,7 +3608,7 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
           </h1>
           <p className="text-sm mt-0.5" style={{ color: T.textDim }}>
             {filteredProjects.length} project{filteredProjects.length !== 1 ? "s" : ""}
-            {healthFilter ? ` · ${HEALTH_LABEL[healthFilter].toLowerCase()}` : " across all departments"}.
+            {healthFilter ? ` · ${FILTER_LABEL[healthFilter].toLowerCase()}` : " across all departments"}.
           </p>
         </div>
         {canEditProject && (
@@ -3580,16 +3621,16 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
       {healthFilter && (
         <div
           className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg"
-          style={{ background: HEALTH_SOFT[healthFilter], border: `1px solid ${HEALTH_COLOR[healthFilter]}33` }}
+          style={{ background: FILTER_SOFT[healthFilter], border: `1px solid ${FILTER_COLOR[healthFilter]}33` }}
         >
-          <span className="text-sm font-medium" style={{ color: HEALTH_COLOR[healthFilter] }}>
-            Showing only {HEALTH_LABEL[healthFilter].toLowerCase()} projects
+          <span className="text-sm font-medium" style={{ color: FILTER_COLOR[healthFilter] }}>
+            Showing only {FILTER_LABEL[healthFilter].toLowerCase()} projects
           </span>
           <button
             type="button"
             onClick={onClearHealthFilter}
             className="text-sm font-medium underline shrink-0"
-            style={{ color: HEALTH_COLOR[healthFilter] }}
+            style={{ color: FILTER_COLOR[healthFilter] }}
           >
             Clear filter
           </button>
@@ -3599,7 +3640,7 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
       {filteredProjects.length === 0 ? (
         <EmptyState
           icon={FolderKanban}
-          title={healthFilter ? `No ${HEALTH_LABEL[healthFilter].toLowerCase()} projects` : "No projects yet"}
+          title={healthFilter ? `No ${FILTER_LABEL[healthFilter].toLowerCase()} projects` : "No projects yet"}
           body={
             healthFilter
               ? "Nothing currently falls in this bucket — project health may have changed since you clicked through."
