@@ -1963,6 +1963,15 @@ export default function App() {
                 onOpenProject={goToProject}
                 onNewProject={() => setModal({ type: "project" })}
                 onFilterHealth={(health) => navigate({ view: "projects", selectedId: null, healthFilter: health })}
+                onViewAllIssues={() => navigate({ view: "issues", selectedId: null })}
+              />
+            )}
+
+            {view === "issues" && (
+              <AllIssuesView
+                projects={visibleProjects}
+                onBack={() => navigate({ view: "dashboard", selectedId: null })}
+                onOpenProject={goToProject}
               />
             )}
 
@@ -3352,7 +3361,7 @@ function SidebarContent({ view, navigate }) {
 }
 
 /* ============================== DASHBOARD VIEW ============================== */
-function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, onFilterHealth }) {
+function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, onFilterHealth, onViewAllIssues }) {
   const { canEditProject, canSeeFinancials } = usePermissions();
   const { withM, totalContract, totalActual, totalProfit, totalOpenIssues, active, fullyCompletedCount, healthCounts } =
     companyMetrics;
@@ -3416,6 +3425,7 @@ function DashboardView({ projects, companyMetrics, onOpenProject, onNewProject, 
               label="Open issues"
               value={totalOpenIssues}
               accent={totalOpenIssues > 0 ? T.amber : T.text}
+              onClick={onViewAllIssues}
             />
             <KpiCard
               label="Active projects"
@@ -3741,6 +3751,141 @@ function ProjectsView({ projects, onOpenProject, onNewProject, onEditProject, on
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================== ALL ISSUES VIEW ============================== */
+function AllIssuesView({ projects, onBack, onOpenProject }) {
+  const [showResolved, setShowResolved] = useState(false);
+
+  const rows = useMemo(() => {
+    const flat = [];
+    projects.forEach((p) => {
+      (p.issues || []).forEach((i) => {
+        flat.push({ ...i, projectId: p.id, projectName: p.name || "Untitled project", projectCode: p.code || "" });
+      });
+    });
+    const visible = showResolved ? flat : flat.filter((i) => i.status === "Open" || i.status === "In Progress");
+    const sevRank = { Critical: 3, High: 2, Medium: 1, Low: 0 };
+    return visible.sort((a, b) => {
+      const aOpen = a.status === "Open" || a.status === "In Progress";
+      const bOpen = b.status === "Open" || b.status === "In Progress";
+      if (aOpen !== bOpen) return aOpen ? -1 : 1;
+      const aSev = sevRank[getEffectiveSeverity(a)] ?? 0;
+      const bSev = sevRank[getEffectiveSeverity(b)] ?? 0;
+      if (aSev !== bSev) return bSev - aSev;
+      return daysOpen(b) - daysOpen(a);
+    });
+  }, [projects, showResolved]);
+
+  const sevColor = { Low: T.textDim, Medium: T.amber, High: T.amber, Critical: T.red };
+
+  return (
+    <div className="flex flex-col gap-5 max-w-6xl">
+      <div>
+        <button onClick={onBack} className="inline-flex items-center gap-1 text-sm mb-3" style={{ color: T.textDim }}>
+          <ChevronLeft size={15} /> Dashboard
+        </button>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-xl font-semibold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+              Open Issues
+            </h1>
+            <p className="text-sm mt-0.5" style={{ color: T.textDim }}>
+              {rows.length} issue{rows.length !== 1 ? "s" : ""}{showResolved ? "" : " open"} across every project.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowResolved((v) => !v)}
+            className="text-sm font-medium underline"
+            style={{ color: T.accentText }}
+          >
+            {showResolved ? "Show open only" : "Show resolved too"}
+          </button>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={AlertTriangle}
+          title={showResolved ? "No issues logged anywhere" : "No open issues"}
+          body={
+            showResolved
+              ? "Nothing has been logged across any project yet."
+              : "Every logged issue across every project is currently resolved or closed."
+          }
+        />
+      ) : (
+        <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr style={{ background: T.bgElevated, color: T.textDim }}>
+                  {["Project", "Description", "Site", "Severity", "Status", "Reported", "Resolution time"].map((h) => (
+                    <th key={h} className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wide">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((i) => {
+                  const effSeverity = getEffectiveSeverity(i);
+                  const escalated = effSeverity !== i.severity;
+                  const isOpen = i.status === "Open" || i.status === "In Progress";
+                  const resolveDays = daysToResolve(i);
+                  return (
+                    <tr
+                      key={i.id}
+                      className="cursor-pointer transition-colors"
+                      style={{ borderTop: `1px solid ${T.border}` }}
+                      onClick={() => onOpenProject(i.projectId, "issues")}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = T.surfaceHover)}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <td className="px-4 py-2.5">
+                        <div className="font-medium" style={{ color: T.text }}>{i.projectName}</div>
+                        {i.projectCode && (
+                          <div className="text-xs" style={{ color: T.textFaint, fontFamily: "'IBM Plex Mono', monospace" }}>
+                            {i.projectCode}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5" style={{ color: T.text, maxWidth: 320 }}>{i.description}</td>
+                      <td className="px-4 py-2.5" style={{ color: T.textDim }}>{i.site || "—"}</td>
+                      <td className="px-4 py-2.5">
+                        <span
+                          className="inline-flex items-center gap-1 text-xs font-medium"
+                          style={{ color: sevColor[effSeverity] }}
+                          title={escalated ? `Auto-escalated from ${i.severity} (still open)` : undefined}
+                        >
+                          {escalated && <Clock size={12} />}
+                          {effSeverity}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5" style={{ color: T.textDim }}>{i.status}</td>
+                      <td className="px-4 py-2.5" style={{ color: T.textDim, fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {fmtDate(i.dateReported)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {resolveDays != null ? (
+                          <span className="text-xs font-medium" style={{ color: T.green }}>Resolved in {resolveDays}d</span>
+                        ) : isOpen ? (
+                          <span className="text-xs" style={{ color: T.textFaint }}>Open {daysOpen(i)}d</span>
+                        ) : (
+                          <span className="text-xs" style={{ color: T.textFaint }}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
