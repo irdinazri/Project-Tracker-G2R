@@ -239,6 +239,40 @@ function SubconSelectScreen({ knownSubcons, loaded, onSelect, onBack }) {
 const SEVERITY_ESCALATION_DAYS = { Low: 2, Medium: 5, High: 10 };
 
 /* ============================== HELPERS ============================== */
+const VALID_NAV_VIEWS = ["dashboard", "projects", "detail", "issues"];
+
+// Builds the query string for a given nav state — the single source of
+// truth for what we push to history on navigation.
+function buildNavUrl({ view, selectedId, detailTab, healthFilter }) {
+  const params = new URLSearchParams();
+  params.set("view", view);
+  if (view === "detail" && selectedId) {
+    params.set("project", selectedId);
+    if (detailTab && detailTab !== "overview") params.set("tab", detailTab);
+  }
+  if (view === "projects" && healthFilter) {
+    params.set("health", healthFilter);
+  }
+  const existing = new URLSearchParams(window.location.search);
+  ["role", "company", "admin"].forEach((k) => {
+    if (existing.has(k) && !params.has(k)) params.set(k, existing.get(k));
+  });
+  return `${window.location.pathname}?${params.toString()}`;
+}
+
+// Reads nav state back out of the URL — used on first load, and as a
+// fallback if Back/Forward fires without a stored history.state.
+function readNavFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  let view = params.get("view") || "dashboard";
+  if (!VALID_NAV_VIEWS.includes(view)) view = "dashboard";
+  return {
+    view,
+    selectedId: view === "detail" ? params.get("project") : null,
+    detailTab: params.get("tab") || "overview",
+    healthFilter: view === "projects" ? params.get("health") : null,
+  };
+}
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const daysBetween = (a, b) => (new Date(b) - new Date(a)) / 86400000;
@@ -1642,14 +1676,8 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
-  const [view, setView] = useState("dashboard");
-  const [selectedId, setSelectedId] = useState(null);
-  const [detailTab, setDetailTab] = useState("overview");
-  // Set when a health pill on the Dashboard is clicked ("3 At risk" etc.) —
-  // filters the Projects view to just that bucket. Cleared whenever the
-  // sidebar nav is used directly (see SidebarContent), so a stale filter
-  // from an earlier click doesn't silently hide projects on a fresh visit.
-  const [healthFilter, setHealthFilter] = useState(null);
+  const [nav, setNav] = useState(() => readNavFromUrl());
+  const { view, selectedId, detailTab, healthFilter } = nav;
   const [navOpen, setNavOpen] = useState(false);
 
   const [deptTemplates, setDeptTemplates] = useState({});
@@ -1743,8 +1771,7 @@ export default function App() {
     (id) => {
       persist(projects.filter((p) => p.id !== id));
       if (selectedId === id) {
-        setSelectedId(null);
-        setView("projects");
+        navigate({ view: "projects", selectedId: null });
       }
     },
     [projects, persist, selectedId]
@@ -1759,6 +1786,31 @@ export default function App() {
     [projects, persist]
   );
 
+  const navigate = useCallback((patch, { replace = false } = {}) => {
+    setNav((prev) => {
+      const next = {
+        view: patch.view ?? prev.view,
+        selectedId: "selectedId" in patch ? patch.selectedId : prev.selectedId,
+        detailTab: patch.detailTab ?? (patch.view && patch.view !== prev.view ? "overview" : prev.detailTab),
+        healthFilter: "healthFilter" in patch ? patch.healthFilter : prev.healthFilter,
+      };
+      const url = buildNavUrl(next);
+      if (replace) window.history.replaceState(next, "", url);
+      else window.history.pushState(next, "", url);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    window.history.replaceState(nav, "", buildNavUrl(nav));
+    const onPopState = (e) => {
+      setNav(e.state || readNavFromUrl());
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const mutateList = useCallback(
     (listKey, mutator) => {
       if (!selected) return;
@@ -1768,10 +1820,8 @@ export default function App() {
     [selected, updateProject]
   );
 
-  const goToProject = (id) => {
-    setSelectedId(id);
-    setDetailTab("overview");
-    setView("detail");
+  const goToProject = (id, tab = "overview") => {
+    navigate({ view: "detail", selectedId: id, detailTab: tab });
     setNavOpen(false);
   };
 
@@ -1853,7 +1903,7 @@ export default function App() {
         className="hidden md:flex flex-col shrink-0"
         style={{ width: 220, background: T.bgElevated, borderRight: `1px solid ${T.border}` }}
       >
-        <SidebarContent view={view} setView={setView} setSelectedId={setSelectedId} setHealthFilter={setHealthFilter} />
+        <SidebarContent view={view} navigate={navigate} />
       </aside>
 
       {navOpen && (
@@ -1862,15 +1912,7 @@ export default function App() {
             className="flex flex-col w-64"
             style={{ background: T.bgElevated, borderRight: `1px solid ${T.border}` }}
           >
-            <SidebarContent
-              view={view}
-              setView={(v) => {
-                setView(v);
-                setNavOpen(false);
-              }}
-              setSelectedId={setSelectedId}
-              setHealthFilter={setHealthFilter}
-            />
+            <SidebarContent view={view} navigate={(patch) => { navigate(patch); setNavOpen(false); }} />
           </div>
           <div className="flex-1" style={{ background: "rgba(6,8,11,0.6)" }} onClick={() => setNavOpen(false)} />
         </div>
@@ -1910,11 +1952,7 @@ export default function App() {
                 companyMetrics={companyMetrics}
                 onOpenProject={goToProject}
                 onNewProject={() => setModal({ type: "project" })}
-                onFilterHealth={(health) => {
-                  setHealthFilter(health);
-                  setSelectedId(null);
-                  setView("projects");
-                }}
+                onFilterHealth={(health) => navigate({ view: "projects", selectedId: null, healthFilter: health })}
               />
             )}
 
@@ -1926,7 +1964,7 @@ export default function App() {
                 onEditProject={(p) => setModal({ type: "project", data: p })}
                 onDeleteProject={deleteProject}
                 healthFilter={healthFilter}
-                onClearHealthFilter={() => setHealthFilter(null)}
+                onClearHealthFilter={() => navigate({ healthFilter: null })}
               />
             )}
 
@@ -1934,8 +1972,8 @@ export default function App() {
               <ProjectDetailView
                 project={selected}
                 tab={detailTab}
-                setTab={setDetailTab}
-                onBack={() => setView("projects")}
+                setTab={(t) => navigate({ detailTab: t })}
+                onBack={() => navigate({ view: "projects", selectedId: null })}
                 onEditProject={() => setModal({ type: "project", data: selected })}
                 onAddTask={(site) => setModal({ type: "task", presetSite: site })}
                 onEditTask={(t) => setModal({ type: "task", data: t })}
@@ -1990,7 +2028,7 @@ export default function App() {
                 title="Project not available"
                 body="This project isn't visible to your current role, or no longer exists."
                 action={
-                  <Button onClick={() => setView("projects")}>
+                  <Button onClick={() => navigate({ view: "projects", selectedId: null })}>
                     <ChevronLeft size={15} /> Back to projects
                   </Button>
                 }
@@ -3236,15 +3274,11 @@ function PrintReport({ project }) {
 }
 
 /* ============================== SIDEBAR ============================== */
-function SidebarContent({ view, setView, setSelectedId, setHealthFilter }) {
+function SidebarContent({ view, navigate }) {
   const { role, subconName, switchRole } = usePermissions();
   const NavItem = ({ id, icon: Icon, label }) => (
     <button
-      onClick={() => {
-        setSelectedId(null);
-        setHealthFilter(null);
-        setView(id);
-      }}
+      onClick={() => navigate({ view: id, selectedId: null, healthFilter: null })}
       className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors w-full text-left"
       style={{
         color: view === id ? T.accentText : T.textDim,
