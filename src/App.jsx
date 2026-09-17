@@ -1597,17 +1597,12 @@ function KpiCard({ label, value, accent, wide }) {
 export default function App() {
   const [role, setRole] = useState(() => {
     try {
-      // A role-specific link (?role=coordinator, ?role=finance, ?role=subcon,
-      // ?role=admin) sets and persists that role immediately, skipping the
-      // picker screen entirely — this is deliberately a hard switch, not a
-      // suggestion: visiting the link overwrites whatever role this device
-      // had saved before, the same way clicking a role button always has.
       const roleParam = new URLSearchParams(window.location.search).get("role");
       if (roleParam && Object.values(ROLES).includes(roleParam)) {
-        localStorage.setItem(ROLE_STORAGE_KEY, roleParam);
+        sessionStorage.setItem(ROLE_STORAGE_KEY, roleParam);
         return roleParam;
       }
-      return localStorage.getItem(ROLE_STORAGE_KEY) || null;
+      return sessionStorage.getItem(ROLE_STORAGE_KEY) || null;
     } catch {
       return null;
     }
@@ -1616,7 +1611,7 @@ export default function App() {
   // site with ?admin=1 on the end of the link reveals the Super Admin
   // button on the role screen for this session. Reloading without that
   // flag hides it again, though a role already chosen and saved in
-  // localStorage on this device keeps working regardless (same as every
+  // sessionStorage on this device keeps working regardless (same as every
   // other role) — this only controls whether the button is OFFERED, not
   // whether an already-selected admin session keeps functioning. This is
   // a visibility control, not real access control — see the standing note
@@ -1630,35 +1625,31 @@ export default function App() {
   });
   const [subconName, setSubconName] = useState(() => {
     try {
-      // Paired with ?role=subcon — ?company=<name> on the same link fills
-      // in the subcontractor selection too, so a link like
-      // ?role=subcon&company=ABC%20Sdn%20Bhd drops that company straight
-      // into their own filtered view with no picker screens at all.
       const params = new URLSearchParams(window.location.search);
       if (params.get("role") === ROLES.SUBCON) {
         const companyParam = params.get("company");
         if (companyParam) {
-          localStorage.setItem(SUBCON_NAME_STORAGE_KEY, companyParam);
+          sessionStorage.setItem(SUBCON_NAME_STORAGE_KEY, companyParam);
           return companyParam;
         }
       }
-      return localStorage.getItem(SUBCON_NAME_STORAGE_KEY) || "";
+      return sessionStorage.getItem(SUBCON_NAME_STORAGE_KEY) || "";
     } catch {
       return "";
     }
   });
   const chooseRole = (r) => {
-    try { localStorage.setItem(ROLE_STORAGE_KEY, r); } catch {}
+    try { sessionStorage.setItem(ROLE_STORAGE_KEY, r); } catch {}
     setRole(r);
   };
   const chooseSubcon = (name) => {
-    try { localStorage.setItem(SUBCON_NAME_STORAGE_KEY, name); } catch {}
+    try { sessionStorage.setItem(SUBCON_NAME_STORAGE_KEY, name); } catch {}
     setSubconName(name);
   };
   const switchRole = () => {
     try {
-      localStorage.removeItem(ROLE_STORAGE_KEY);
-      localStorage.removeItem(SUBCON_NAME_STORAGE_KEY);
+      sessionStorage.removeItem(ROLE_STORAGE_KEY);
+      sessionStorage.removeItem(SUBCON_NAME_STORAGE_KEY);
     } catch {}
     setRole(null);
     setSubconName("");
