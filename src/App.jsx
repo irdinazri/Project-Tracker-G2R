@@ -1451,17 +1451,33 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                                 borderStyle: isOverdueUnflagged || stillRunningOverdue ? "dashed" : "solid",
                                 cursor: clickable ? "pointer" : "default",
                               }}
-                              title={
-                                finishedLate
-                                  ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} · completed ${daysLate}d after the original ${fmtDate(t.plannedEnd)} finish date`
-                                  : hasOverrun
-                                  ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · overdue since ${fmtDate(t.plannedEnd)}${stillRunningOverdue ? ` · still ${daysOverdue}d past its Finish date` : ""}`
-                                  : isOverdueUnflagged
-                                  ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · ${daysOverdue}d past its finish date, not marked Delayed yet`
-                                  : linkedIssues.length > 0
-                                  ? `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%) · blocked: ${linkedIssues.map((i) => i.description).join(" · ")}`
-                                  : `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)} (${progress}%)`
-                              }
+                                                        title={(() => {
+                            const base = `${sitePrefix}${fmtDate(t.start)} → ${fmtDate(t.end)}`;
+                            // The actual "why" — an issue's description, when one is
+                            // linked. Falls back to an explicit "no reason logged"
+                            // rather than staying silent, so staff can tell "there's a
+                            // real reason nobody wrote it down" apart from "no problem."
+                            const reason =
+                              linkedIssues.length > 0
+                                ? linkedIssues.map((i) => i.description).join(" · ")
+                                : hasOverrun || isOverdueUnflagged
+                                ? "no reason logged yet"
+                                : null;
+
+                            if (finishedLate) {
+                              return `${base} · completed ${daysLate}d after the original ${fmtDate(t.plannedEnd)} finish date${reason ? ` · reason: ${reason}` : ""}`;
+                            }
+                            if (hasOverrun) {
+                              return `${base} (${progress}%) · overdue since ${fmtDate(t.plannedEnd)}${stillRunningOverdue ? ` · still ${daysOverdue}d past its Finish date` : ""}${reason ? ` · reason: ${reason}` : ""}`;
+                            }
+                            if (isOverdueUnflagged) {
+                              return `${base} (${progress}%) · ${daysOverdue}d past its finish date, not marked Delayed yet${reason ? ` · reason: ${reason}` : ""}`;
+                            }
+                            if (linkedIssues.length > 0) {
+                              return `${base} (${progress}%) · blocked: ${reason}`;
+                            }
+                            return `${base} (${progress}%)`;
+                          })()}
                             >
                               {hasOverrun && (
                                 <>
