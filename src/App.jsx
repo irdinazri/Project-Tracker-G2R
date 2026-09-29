@@ -3922,6 +3922,7 @@ function ProjectDetailView({
   const tabs = [
     ["overview", "Overview"],
     ["gantt", "Gantt"],
+    ["status", "Status"],
     ...(showCostsTab ? [["costs", "Costs"]] : []),
     ["issues", `Issues${m.openIssuesCount ? ` (${m.openIssuesCount})` : ""}`],
     ...(showActivityTab ? [["activity", "Activity"]] : []),
@@ -3992,6 +3993,7 @@ function ProjectDetailView({
       {effectiveTab === "gantt" && (
         <GanttTab project={project} onAddTask={onAddTask} onEditTask={onEditTask} onDeleteTask={onDeleteTask} onQuickUpdateTask={onQuickUpdateTask} onManageTemplates={onManageTemplates} onBulkGenerate={onBulkGenerate} hasDeptTemplates={hasDeptTemplates} onToggleScheduleLock={onToggleScheduleLock} />
       )}
+      {effectiveTab === "status" && <TaskStatusTab project={project} />}
       {effectiveTab === "costs" && showCostsTab && (
         <CostsTab project={project} m={m} onAddCost={onAddCost} onEditCost={onEditCost} onDeleteCost={onDeleteCost} />
       )}
@@ -4561,6 +4563,115 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function TaskStatusTab({ project }) {
+  const tasks = project.tasks || [];
+  const issues = project.issues || [];
+
+  const openIssuesByTask = useMemo(() => {
+    const map = {};
+    issues.forEach((i) => {
+      if (!i.taskId || (i.status !== "Open" && i.status !== "In Progress")) return;
+      (map[i.taskId] = map[i.taskId] || []).push(i);
+    });
+    return map;
+  }, [issues]);
+
+  const rows = useMemo(() => {
+    const withReason = tasks.map((t) => {
+      const linked = openIssuesByTask[t.id] || [];
+      const today = overdueEffectiveToday(!!t.nightShift);
+      const notStartedOverdue = t.status === "Not Started" && t.start && t.start < today;
+      const inProgressOverdue = t.status === "In Progress" && t.end && t.end < today;
+      const isDelayed = t.status === "Delayed";
+      const finishedLate = t.status === "Completed" && t.plannedEnd && t.end && t.plannedEnd < t.end;
+      const hasConcern = notStartedOverdue || inProgressOverdue || isDelayed || finishedLate;
+
+      let reason = "—";
+      if (notStartedOverdue) {
+        reason = linked.length
+          ? `Should have started ${fmtDate(t.start)} — ${linked.map((i) => i.description).join(" · ")}`
+          : `Should have started ${fmtDate(t.start)} — no reason logged yet`;
+      } else if (isDelayed) {
+        const due = t.plannedEnd ? ` (originally due ${fmtDate(t.plannedEnd)})` : "";
+        reason = linked.length
+          ? `${linked.map((i) => i.description).join(" · ")}${due}`
+          : `No reason logged yet${due}`;
+      } else if (inProgressOverdue) {
+        reason = linked.length
+          ? `Past its finish date (${fmtDate(t.end)}), not yet marked Delayed — ${linked.map((i) => i.description).join(" · ")}`
+          : `Past its finish date (${fmtDate(t.end)}), not yet marked Delayed — no reason logged`;
+      } else if (finishedLate) {
+        const daysLate = Math.max(1, Math.round(daysBetween(t.plannedEnd, t.end)));
+        reason = `Completed ${daysLate}d after the original ${fmtDate(t.plannedEnd)} finish date`;
+      }
+
+      return { task: t, reason, hasConcern };
+    });
+
+    return withReason.sort((a, b) => {
+      if (a.hasConcern !== b.hasConcern) return a.hasConcern ? -1 : 1;
+      const siteA = a.task.site || "";
+      const siteB = b.task.site || "";
+      if (siteA !== siteB) return siteA.localeCompare(siteB);
+      return (a.task.start || "").localeCompare(b.task.start || "");
+    });
+  }, [tasks, openIssuesByTask]);
+
+  if (tasks.length === 0) {
+    return (
+      <EmptyState
+        icon={ListChecks}
+        title="No tasks yet"
+        body="Once tasks are added in the Gantt tab, this view will show every task's status, who owns it, and why it isn't moving if it isn't."
+      />
+    );
+  }
+
+  const concernCount = rows.filter((r) => r.hasConcern).length;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm" style={{ color: T.textDim }}>
+        Every task in this project, one row per site —{" "}
+        {concernCount > 0
+          ? `${concernCount} need${concernCount === 1 ? "s" : ""} attention (shown first).`
+          : "nothing currently needs attention."}
+      </p>
+      <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: T.bgElevated, color: T.textDim }}>
+                {["Task", "Site", "Owner", "Status", "Start", "Finish", "Reason"].map((h) => (
+                  <th key={h} className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wide">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ task: t, reason, hasConcern }) => (
+                <tr
+                  key={t.id}
+                  style={{ borderTop: `1px solid ${T.border}`, borderLeft: hasConcern ? `3px solid ${T.amber}` : undefined }}
+                >
+                  <td className="px-4 py-2.5" style={{ color: T.text }}>{t.name}</td>
+                  <td className="px-4 py-2.5" style={{ color: T.textDim }}>{t.site || "All sites"}</td>
+                  <td className="px-4 py-2.5" style={{ color: T.textDim }}>{t.owner || "—"}</td>
+                  <td className="px-4 py-2.5" style={{ color: T.textDim }}>{t.status}</td>
+                  <td className="px-4 py-2.5" style={{ color: T.textDim, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtDate(t.start)}</td>
+                  <td className="px-4 py-2.5" style={{ color: T.textDim, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtDate(t.end)}</td>
+                  <td className="px-4 py-2.5" style={{ color: hasConcern ? T.amber : T.textFaint, maxWidth: 360 }}>{reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
