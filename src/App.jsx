@@ -432,6 +432,41 @@ function daysOverdueCount(task, todayVal) {
 
   return Math.max(1, Math.round(daysBetween(task.end, todayVal)));
 }
+
+// Shared "why isn't this moving" text — one place computing the reason a
+// task is flagged, reused by the Status tab's Reason column and by the
+// Gantt chart's tap/click-to-view popup, so the two can't say different
+// things about the same task.
+function computeTaskReason(task, linkedOpenIssues) {
+  const linked = linkedOpenIssues || [];
+  const today = overdueEffectiveToday(!!task.nightShift);
+  const notStartedOverdue = task.status === "Not Started" && task.start && task.start < today;
+  const inProgressOverdue = task.status === "In Progress" && task.end && task.end < today;
+  const isDelayed = task.status === "Delayed";
+  const finishedLate = task.status === "Completed" && task.plannedEnd && task.end && task.plannedEnd < task.end;
+  const hasConcern = notStartedOverdue || inProgressOverdue || isDelayed || finishedLate;
+
+  let reason = "—";
+  if (notStartedOverdue) {
+    reason = linked.length
+      ? `Should have started ${fmtDate(task.start)} — ${linked.map((i) => i.description).join(" · ")}`
+      : `Should have started ${fmtDate(task.start)} — no reason logged yet`;
+  } else if (isDelayed) {
+    const due = task.plannedEnd ? ` (originally due ${fmtDate(task.plannedEnd)})` : "";
+    reason = linked.length
+      ? `${linked.map((i) => i.description).join(" · ")}${due}`
+      : `No reason logged yet${due}`;
+  } else if (inProgressOverdue) {
+    reason = linked.length
+      ? `Past its finish date (${fmtDate(task.end)}), not yet marked Delayed — ${linked.map((i) => i.description).join(" · ")}`
+      : `Past its finish date (${fmtDate(task.end)}), not yet marked Delayed — no reason logged`;
+  } else if (finishedLate) {
+    const daysLate = Math.max(1, Math.round(daysBetween(task.plannedEnd, task.end)));
+    reason = `Completed ${daysLate}d after the original ${fmtDate(task.plannedEnd)} finish date`;
+  }
+
+  return { reason, hasConcern };
+}
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
 const DEFAULT_DEPT_TEMPLATES = {
@@ -1117,7 +1152,7 @@ function EmptyState({ icon: Icon, title, body, action }) {
 }
 
 /* ============================== GANTT ============================== */
-function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compact, worksWeekends }) {
+function GanttChart({ tasks, projectStart, projectEnd, onEditTask, onViewTask, issues, compact, worksWeekends }) {
   const range = useMemo(() => {
     const candidates = [...tasks.map((t) => t.start), ...tasks.map((t) => t.end), projectStart, projectEnd].filter(Boolean);
     let rs = candidates.length ? candidates.reduce((a, b) => (a < b ? a : b)) : null;
@@ -1429,15 +1464,15 @@ function GanttChart({ tasks, projectStart, projectEnd, onEditTask, issues, compa
                             finishedLate && t.plannedEnd && t.end
                               ? Math.max(1, Math.round(daysBetween(t.plannedEnd, t.end)))
                               : 0;
-                          const linkedIssues = openIssuesByTask[t.id] || [];
-                          const progress = clamp(t.progress || 0, 0, 100);
-                          const clickable = !!onEditTask;
-                          const sitePrefix = t.site ? `${t.site} — ` : "All sites — ";
+                                                const linkedIssues = openIssuesByTask[t.id] || [];
+                      const progress = clamp(t.progress || 0, 0, 100);
+                      const clickable = !!onEditTask || !!onViewTask;
+                      const sitePrefix = t.site ? `${t.site} — ` : "All sites — ";
 
-                          return (
-                            <div
-                              key={t.id}
-                              onClick={clickable ? () => onEditTask(t) : undefined}
+                      return (
+                        <div
+                          key={t.id}
+                          onClick={onEditTask ? () => onEditTask(t) : onViewTask ? () => onViewTask(t) : undefined}
                               className="absolute rounded-md flex items-center overflow-hidden"
                               style={{
                                 left: leftPx,
@@ -4092,6 +4127,51 @@ function OverviewTab({ project, m }) {
   );
 }
 
+// Read-only "what's going on with this task" popup — opened by tapping or
+// clicking a task bar on the Gantt chart when the viewer can't fully edit
+// it (Finance, Subcon). Shows the same Reason text as the Status tab.
+function TaskReasonModal({ task, linkedIssues, onClose }) {
+  if (!task) return null;
+  const { reason, hasConcern } = computeTaskReason(task, linkedIssues);
+  return (
+    <Modal title="Task status" onClose={onClose} onSubmit={onClose} submitLabel="Close">
+      <div className="flex flex-col gap-2.5 text-sm">
+        <div className="font-medium text-base" style={{ color: T.text }}>
+          {task.name}
+        </div>
+        {[
+          ["Site", task.site || "All sites"],
+          ["Owner", task.owner || "—"],
+          ["Status", task.status],
+          ["Start", fmtDate(task.start)],
+          ["Finish", fmtDate(task.end)],
+        ].map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-3">
+            <span style={{ color: T.textFaint }}>{k}</span>
+            <span style={{ color: T.text }}>{v}</span>
+          </div>
+        ))}
+        <div
+          className="mt-1 px-3 py-2.5 rounded-lg"
+          style={{
+            background: hasConcern ? T.amberSoft : T.bgElevated,
+            color: hasConcern ? T.amber : T.textFaint,
+            border: `1px solid ${hasConcern ? `${T.amber}33` : T.border}`,
+          }}
+        >
+          <div
+            className="text-xs font-semibold uppercase tracking-wide mb-1"
+            style={{ color: hasConcern ? T.amber : T.textFaint }}
+          >
+            Reason
+          </div>
+          {reason}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateTask, onManageTemplates, onBulkGenerate, hasDeptTemplates, onToggleScheduleLock }) {
   const { canEditTasks, role } = usePermissions();
   // Manual, whole-schedule freeze — independent of any individual task's
@@ -4126,6 +4206,8 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
   // only once the project actually has sites defined. No sites = the plain flat
   // table, unchanged from before this feature existed.
   const [collapsedSites, setCollapsedSites] = useState(() => new Set());
+  const [viewingTaskId, setViewingTaskId] = useState(null);
+  const viewingTask = viewingTaskId ? tasks.find((t) => t.id === viewingTaskId) || null : null;
   const toggleSiteCollapsed = (key) =>
     setCollapsedSites((prev) => {
       const next = new Set(prev);
@@ -4479,7 +4561,15 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
         })()
       ) : (
         <>
-          <GanttChart tasks={tasks} projectStart={project.startDate} projectEnd={project.endDate} onEditTask={canEditTasks ? onEditTask : undefined} issues={issues} worksWeekends={!!project.worksWeekends} />
+          <GanttChart
+            tasks={tasks}
+            projectStart={project.startDate}
+            projectEnd={project.endDate}
+            onEditTask={canEditTasks ? onEditTask : undefined}
+            onViewTask={(t) => setViewingTaskId(t.id)}
+            issues={issues}
+            worksWeekends={!!project.worksWeekends}
+          />
 
           {/* Desktop: table, scrollable so narrow windows can't clip it either */}
           <div className="hidden sm:block rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
@@ -4579,6 +4669,13 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           </div>
         </>
       )}
+      {viewingTask && (
+        <TaskReasonModal
+          task={viewingTask}
+          linkedIssues={openIssuesByTask[viewingTask.id] || []}
+          onClose={() => setViewingTaskId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -4598,33 +4695,7 @@ function TaskStatusTab({ project }) {
 
   const rows = useMemo(() => {
     const withReason = tasks.map((t) => {
-      const linked = openIssuesByTask[t.id] || [];
-      const today = overdueEffectiveToday(!!t.nightShift);
-      const notStartedOverdue = t.status === "Not Started" && t.start && t.start < today;
-      const inProgressOverdue = t.status === "In Progress" && t.end && t.end < today;
-      const isDelayed = t.status === "Delayed";
-      const finishedLate = t.status === "Completed" && t.plannedEnd && t.end && t.plannedEnd < t.end;
-      const hasConcern = notStartedOverdue || inProgressOverdue || isDelayed || finishedLate;
-
-      let reason = "—";
-      if (notStartedOverdue) {
-        reason = linked.length
-          ? `Should have started ${fmtDate(t.start)} — ${linked.map((i) => i.description).join(" · ")}`
-          : `Should have started ${fmtDate(t.start)} — no reason logged yet`;
-      } else if (isDelayed) {
-        const due = t.plannedEnd ? ` (originally due ${fmtDate(t.plannedEnd)})` : "";
-        reason = linked.length
-          ? `${linked.map((i) => i.description).join(" · ")}${due}`
-          : `No reason logged yet${due}`;
-      } else if (inProgressOverdue) {
-        reason = linked.length
-          ? `Past its finish date (${fmtDate(t.end)}), not yet marked Delayed — ${linked.map((i) => i.description).join(" · ")}`
-          : `Past its finish date (${fmtDate(t.end)}), not yet marked Delayed — no reason logged`;
-      } else if (finishedLate) {
-        const daysLate = Math.max(1, Math.round(daysBetween(t.plannedEnd, t.end)));
-        reason = `Completed ${daysLate}d after the original ${fmtDate(t.plannedEnd)} finish date`;
-      }
-
+      const { reason, hasConcern } = computeTaskReason(t, openIssuesByTask[t.id]);
       return { task: t, reason, hasConcern };
     });
 
