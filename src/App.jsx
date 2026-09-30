@@ -121,6 +121,7 @@ const PermissionsContext = React.createContext({
   canSetCostApproval: false,
   canEditIssues: false,
   canAddIssues: false,
+  canEditDelayReason: false,
   canPrintReport: false,
   canSeeFinancials: true,
   subconName: "",
@@ -439,6 +440,7 @@ function daysOverdueCount(task, todayVal) {
 // things about the same task.
 function computeTaskReason(task, linkedOpenIssues) {
   const linked = linkedOpenIssues || [];
+  const noteText = (task.delayNote || "").trim();
   const today = overdueEffectiveToday(!!task.nightShift);
   const notStartedOverdue = task.status === "Not Started" && task.start && task.start < today;
   const inProgressOverdue = task.status === "In Progress" && task.end && task.end < today;
@@ -448,21 +450,29 @@ function computeTaskReason(task, linkedOpenIssues) {
 
   let reason = "—";
   if (notStartedOverdue) {
-    reason = linked.length
+    reason = noteText
+      ? `${noteText} (should have started ${fmtDate(task.start)})`
+      : linked.length
       ? `Should have started ${fmtDate(task.start)} — ${linked.map((i) => i.description).join(" · ")}`
       : `Should have started ${fmtDate(task.start)} — no reason logged yet`;
   } else if (isDelayed) {
     const due = task.plannedEnd ? ` (originally due ${fmtDate(task.plannedEnd)})` : "";
-    reason = linked.length
+    reason = noteText
+      ? `${noteText}${due}`
+      : linked.length
       ? `${linked.map((i) => i.description).join(" · ")}${due}`
       : `No reason logged yet${due}`;
   } else if (inProgressOverdue) {
-    reason = linked.length
+    reason = noteText
+      ? `${noteText} (past its finish date, ${fmtDate(task.end)})`
+      : linked.length
       ? `Past its finish date (${fmtDate(task.end)}), not yet marked Delayed — ${linked.map((i) => i.description).join(" · ")}`
       : `Past its finish date (${fmtDate(task.end)}), not yet marked Delayed — no reason logged`;
   } else if (finishedLate) {
     const daysLate = Math.max(1, Math.round(daysBetween(task.plannedEnd, task.end)));
-    reason = `Completed ${daysLate}d after the original ${fmtDate(task.plannedEnd)} finish date`;
+    reason = noteText
+      ? `${noteText} (completed ${daysLate}d after the original ${fmtDate(task.plannedEnd)} finish date)`
+      : `Completed ${daysLate}d after the original ${fmtDate(task.plannedEnd)} finish date`;
   }
 
   return { reason, hasConcern };
@@ -1724,6 +1734,7 @@ export default function App() {
   const canSetCostApproval = role === ROLES.FINANCE || role === ROLES.ADMIN;
   const canEditIssues = role === ROLES.COORDINATOR || role === ROLES.ADMIN;
   const canAddIssues = role === ROLES.COORDINATOR || role === ROLES.SUBCON || role === ROLES.ADMIN;
+  const canEditDelayReason = role === ROLES.COORDINATOR || role === ROLES.SUBCON || role === ROLES.ADMIN;
   const canPrintReport = role === ROLES.COORDINATOR || role === ROLES.FINANCE || role === ROLES.ADMIN;
   const canSeeFinancials = role !== ROLES.SUBCON;
 
@@ -1926,6 +1937,7 @@ export default function App() {
         canSetCostApproval,
         canEditIssues,
         canAddIssues,
+        canEditDelayReason,
         canPrintReport,
         canSeeFinancials,
         subconName,
@@ -4130,27 +4142,61 @@ function OverviewTab({ project, m }) {
 // Read-only "what's going on with this task" popup — opened by tapping or
 // clicking a task bar on the Gantt chart when the viewer can't fully edit
 // it (Finance, Subcon). Shows the same Reason text as the Status tab.
-function TaskReasonModal({ task, linkedIssues, onClose }) {
+function TaskReasonModal({ task, linkedIssues, onClose, onSaveReason }) {
+  const { canEditDelayReason } = usePermissions();
+  const [note, setNote] = useState(task ? task.delayNote || "" : "");
   if (!task) return null;
   const { reason, hasConcern } = computeTaskReason(task, linkedIssues);
+
+  const infoRows = (
+    <>
+      <div className="font-medium text-base" style={{ color: T.text }}>
+        {task.name}
+      </div>
+      {[
+        ["Site", task.site || "All sites"],
+        ["Owner", task.owner || "—"],
+        ["Status", task.status],
+        ["Start", fmtDate(task.start)],
+        ["Finish", fmtDate(task.end)],
+      ].map(([k, v]) => (
+        <div key={k} className="flex justify-between gap-3">
+          <span style={{ color: T.textFaint }}>{k}</span>
+          <span style={{ color: T.text }}>{v}</span>
+        </div>
+      ))}
+    </>
+  );
+
+  if (canEditDelayReason) {
+    return (
+      <Modal
+        title="Task status"
+        onClose={onClose}
+        onSubmit={() => {
+          onSaveReason(note);
+          onClose();
+        }}
+        submitLabel="Save reason"
+      >
+        <div className="flex flex-col gap-2.5 text-sm">
+          {infoRows}
+          <Field label="Reason (visible to everyone on this project)">
+            <TextArea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. Material delayed by supplier, waiting on permit approval..."
+            />
+          </Field>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal title="Task status" onClose={onClose} onSubmit={onClose} submitLabel="Close">
       <div className="flex flex-col gap-2.5 text-sm">
-        <div className="font-medium text-base" style={{ color: T.text }}>
-          {task.name}
-        </div>
-        {[
-          ["Site", task.site || "All sites"],
-          ["Owner", task.owner || "—"],
-          ["Status", task.status],
-          ["Start", fmtDate(task.start)],
-          ["Finish", fmtDate(task.end)],
-        ].map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-3">
-            <span style={{ color: T.textFaint }}>{k}</span>
-            <span style={{ color: T.text }}>{v}</span>
-          </div>
-        ))}
+        {infoRows}
         <div
           className="mt-1 px-3 py-2.5 rounded-lg"
           style={{
@@ -4674,6 +4720,7 @@ function GanttTab({ project, onAddTask, onEditTask, onDeleteTask, onQuickUpdateT
           task={viewingTask}
           linkedIssues={openIssuesByTask[viewingTask.id] || []}
           onClose={() => setViewingTaskId(null)}
+          onSaveReason={(note) => onQuickUpdateTask(viewingTask.id, { delayNote: note })}
         />
       )}
     </div>
@@ -5372,6 +5419,7 @@ function TaskModal({ data, issues, siteNames, taskNames, presetSite, datesLocked
       progress: 0,
       plannedEnd: "",
       nightShift: false,
+      delayNote: "",
     }
   );
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -5500,6 +5548,13 @@ function TaskModal({ data, issues, siteNames, taskNames, presetSite, datesLocked
           </Select>
         </Field>
       )}
+      <Field label="Delay reason (optional)">
+        <TextArea
+          value={f.delayNote || ""}
+          onChange={set("delayNote")}
+          placeholder="e.g. Material delayed by supplier, waiting on permit approval..."
+        />
+      </Field>
     </Modal>
   );
 }
