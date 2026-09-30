@@ -4183,6 +4183,7 @@ function TaskReasonModal({ task, linkedIssues, onClose, onSaveReason }) {
           {infoRows}
           <Field label="Reason (visible to everyone on this project)">
             <TextArea
+              required
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="e.g. Material delayed by supplier, waiting on permit approval..."
@@ -5451,7 +5452,7 @@ function TaskModal({ data, issues, siteNames, taskNames, presetSite, datesLocked
         its own dates.
       </p>
       <Field label="Owner">
-        <TextInput value={f.owner} onChange={set("owner")} placeholder="Responsible person" />
+        <TextInput required value={f.owner} onChange={set("owner")} placeholder="Responsible person" />
       </Field>
       <Field label="Site (optional)">
         <Select value={f.site || ""} onChange={set("site")}>
@@ -5548,8 +5549,9 @@ function TaskModal({ data, issues, siteNames, taskNames, presetSite, datesLocked
           </Select>
         </Field>
       )}
-      <Field label="Delay reason (optional)">
+      <Field label="Delay reason">
         <TextArea
+          required
           value={f.delayNote || ""}
           onChange={set("delayNote")}
           placeholder="e.g. Material delayed by supplier, waiting on permit approval..."
