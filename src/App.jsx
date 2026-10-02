@@ -4745,6 +4745,16 @@ function TaskStatusTab({ project }) {
     const withReason = tasks.map((t) => {
       const { reason, hasConcern } = computeTaskReason(t, openIssuesByTask[t.id]);
       return { task: t, reason, hasConcern };
+    });  const rows = useMemo(() => {
+    const withReason = tasks.map((t) => {
+      const { reason, hasConcern } = computeTaskReason(t, openIssuesByTask[t.id]);
+      // Separate from hasConcern — this specifically flags a Completed
+      // task that finished later than originally planned, so the Status
+      // column can show both facts together (plain "Completed" status +
+      // a "late" badge) instead of the lateness only surfacing in Reason.
+      const finishedLate = t.status === "Completed" && t.plannedEnd && t.plannedEnd < t.end;
+      const daysLate = finishedLate ? Math.max(1, Math.round(daysBetween(t.plannedEnd, t.end))) : 0;
+      return { task: t, reason, hasConcern, finishedLate, daysLate };
     });
 
     // Chronological by Start date — this view should read like the
@@ -4798,7 +4808,7 @@ function TaskStatusTab({ project }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ task: t, reason, hasConcern }) => (
+              {rows.map(({ task: t, reason, hasConcern, finishedLate, daysLate }) => (
                 <tr
                   key={t.id}
                   style={{ borderTop: `1px solid ${T.border}`, borderLeft: hasConcern ? `3px solid ${T.amber}` : undefined }}
@@ -4806,7 +4816,20 @@ function TaskStatusTab({ project }) {
                   <td className="px-4 py-2.5" style={{ color: T.text }}>{t.name}</td>
                   <td className="px-4 py-2.5" style={{ color: T.textDim }}>{t.site || "All sites"}</td>
                   <td className="px-4 py-2.5" style={{ color: T.textDim }}>{t.owner || "—"}</td>
-                  <td className="px-4 py-2.5" style={{ color: T.textDim }}>{t.status}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span style={{ color: T.textDim }}>{t.status}</span>
+                      {finishedLate && (
+                        <Pill
+                          color={T.amber}
+                          soft={T.amberSoft}
+                          title={`Completed ${daysLate}d after the original ${fmtDate(t.plannedEnd)} finish date`}
+                        >
+                          Completed {daysLate}d late
+                        </Pill>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-2.5" style={{ color: T.textDim, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtDate(t.start)}</td>
                   <td className="px-4 py-2.5" style={{ color: T.textDim, fontFamily: "'IBM Plex Mono', monospace" }}>{fmtDate(t.end)}</td>
                   <td className="px-4 py-2.5" style={{ color: hasConcern ? T.amber : T.textFaint, maxWidth: 360 }}>{reason}</td>
