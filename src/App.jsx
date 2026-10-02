@@ -4747,12 +4747,21 @@ function TaskStatusTab({ project }) {
       return { task: t, reason, hasConcern };
     });
 
+    // Chronological by Start date — this view should read like the
+    // project's actual sequence of work, not jump concerns to the top.
+    // Tasks needing attention still stand out via the amber left border
+    // on each row below; they just no longer get pulled out of sequence.
     return withReason.sort((a, b) => {
-      if (a.hasConcern !== b.hasConcern) return a.hasConcern ? -1 : 1;
+      const startA = a.task.start || "";
+      const startB = b.task.start || "";
+      if (!startA && !startB) return 0;
+      if (!startA) return 1; // no Start date at all — push to the end
+      if (!startB) return -1;
+      if (startA !== startB) return startA.localeCompare(startB);
+      // Same Start date — site name as a stable tiebreaker.
       const siteA = a.task.site || "";
       const siteB = b.task.site || "";
-      if (siteA !== siteB) return siteA.localeCompare(siteB);
-      return (a.task.start || "").localeCompare(b.task.start || "");
+      return siteA.localeCompare(siteB);
     });
   }, [tasks, openIssuesByTask]);
 
@@ -4771,9 +4780,9 @@ function TaskStatusTab({ project }) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm" style={{ color: T.textDim }}>
-        Every task in this project, one row per site —{" "}
+        Every task in this project, in schedule order by Start date —{" "}
         {concernCount > 0
-          ? `${concernCount} need${concernCount === 1 ? "s" : ""} attention (shown first).`
+          ? `${concernCount} need${concernCount === 1 ? "s" : ""} attention (highlighted below).`
           : "nothing currently needs attention."}
       </p>
       <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.border}` }}>
