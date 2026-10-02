@@ -4744,10 +4744,6 @@ function TaskStatusTab({ project }) {
   const rows = useMemo(() => {
     const withReason = tasks.map((t) => {
       const { reason, hasConcern } = computeTaskReason(t, openIssuesByTask[t.id]);
-      return { task: t, reason, hasConcern };
-    });  const rows = useMemo(() => {
-    const withReason = tasks.map((t) => {
-      const { reason, hasConcern } = computeTaskReason(t, openIssuesByTask[t.id]);
       // Separate from hasConcern — this specifically flags a Completed
       // task that finished later than originally planned, so the Status
       // column can show both facts together (plain "Completed" status +
@@ -4807,7 +4803,7 @@ function TaskStatusTab({ project }) {
                 ))}
               </tr>
             </thead>
-            <tbody>
+                        <tbody>
               {rows.map(({ task: t, reason, hasConcern, finishedLate, daysLate }) => (
                 <tr
                   key={t.id}
